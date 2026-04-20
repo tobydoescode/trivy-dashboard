@@ -1,0 +1,26 @@
+<table class="vuln-table">
+    <thead>
+        <tr>
+            <th>CVE</th>
+            <th>Severity</th>
+            <th>CVSS</th>
+            <th>Package</th>
+            <th>Installed</th>
+            <th>Fixed</th>
+            <th>Description</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Vulns}}
+        <tr class="severity-{{.Severity}}">
+            <td><a href="{{.PrimaryLink}}" target="_blank" rel="noopener">{{.ID}}</a></td>
+            <td>{{.Severity}}</td>
+            <td>{{printf "%.1f" .Score}}</td>
+            <td>{{.Resource}}</td>
+            <td>{{.InstalledVersion}}</td>
+            <td>{{if .FixedVersion}}{{.FixedVersion}}{{else}}<span class="no-fix">no fix</span>{{end}}</td>
+            <td>{{.Title}}</td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>

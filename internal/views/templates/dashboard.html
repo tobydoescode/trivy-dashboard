@@ -1,0 +1,34 @@
+<div class="summary rag-{{.Summary.RAG}}">
+    <span class="count critical">{{.Summary.Critical}} Critical</span>
+    <span class="count high">{{.Summary.High}} High</span>
+    <span class="count medium">{{.Summary.Medium}} Medium</span>
+    <span class="count low">{{.Summary.Low}} Low</span>
+</div>
+
+<table class="workloads">
+    <thead>
+        <tr>
+            <th>Service</th>
+            <th>Image</th>
+            <th>Critical</th>
+            <th>High</th>
+            <th>Medium</th>
+            <th>Low</th>
+            <th>Status</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Workloads}}
+        <tr class="workload-row rag-{{.RAG}}" data-ns="{{.Namespace}}" data-name="{{.WorkloadName}}">
+            <td>{{.Namespace}}/{{.WorkloadName}}</td>
+            <td class="image">{{.Image}}</td>
+            <td class="count">{{.Critical}}</td>
+            <td class="count">{{.High}}</td>
+            <td class="count">{{.Medium}}</td>
+            <td class="count">{{.Low}}</td>
+            <td><span class="rag-badge rag-{{.RAG}}">{{.RAG}}</span></td>
+        </tr>
+        <tr class="workload-detail"><td colspan="7"></td></tr>
+        {{end}}
+    </tbody>
+</table>
