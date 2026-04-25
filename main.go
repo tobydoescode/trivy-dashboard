@@ -95,7 +95,9 @@ func main() {
 		informer.Run(ctx.Done())
 	}()
 
-	if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced) {
+	syncCtx, syncCancel := context.WithTimeout(ctx, 60*time.Second)
+	defer syncCancel()
+	if !cache.WaitForCacheSync(syncCtx.Done(), informer.HasSynced) {
 		logger.Error("failed to sync informer cache")
 		os.Exit(1)
 	}
@@ -140,8 +142,11 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           api.SecurityHeaders(mux),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
