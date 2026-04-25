@@ -28,7 +28,8 @@ Amber, Green otherwise.
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
 | GET | `/` | — | Dashboard shell (no data; UI fetches `/api/dashboard`) |
-| GET | `/api/dashboard` | bearer (if `TRIVY_DASHBOARD_TOKEN` set) | Summary HTML partial |
+| POST | `/api/session` | bearer (if `TRIVY_DASHBOARD_TOKEN` set) | Browser session cookie setup |
+| GET | `/api/dashboard` | bearer/session (if `TRIVY_DASHBOARD_TOKEN` set) | Summary HTML partial |
 | GET | `/workload/{namespace}/{name}` | bearer (if token set) | Workload detail page |
 | GET | `/static/*` | — | Embedded CSS/JS |
 | GET | `/healthz` | — | Liveness |
@@ -41,6 +42,10 @@ Amber, Green otherwise.
 | `TRIVY_DASHBOARD_ADDR` | `:8080` | Listen address |
 | `TRIVY_DASHBOARD_TOKEN` | _unset_ | If set, `/api/*` and `/workload/*` require `Authorization: Bearer <token>`. If unset, those routes are public. |
 | `KUBECONFIG` | `~/.kube/config` | Only used outside the cluster when in-cluster config isn't available |
+
+When `TRIVY_DASHBOARD_TOKEN` is set, browser requests first exchange the bearer
+token for an HTTP-only same-site session cookie at `POST /api/session`. The SSE
+stream uses that cookie so credentials are not placed in query strings.
 
 In production `TRIVY_DASHBOARD_TOKEN` comes from the `trivy-dashboard-auth`
 Secret, populated by ExternalSecrets.

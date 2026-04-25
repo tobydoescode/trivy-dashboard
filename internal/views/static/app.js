@@ -20,6 +20,25 @@
     sessionStorage.removeItem(TOKEN_KEY);
   }
 
+  async function establishSession() {
+    const token = getToken();
+    if (!token) return false;
+    const res = await fetch("/api/session", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + token }
+    });
+    if (res.status === 401) {
+      clearToken();
+      content.innerHTML = '<p class="error">Unauthorized - token cleared. Refresh to re-enter.</p>';
+      return false;
+    }
+    if (!res.ok) {
+      content.innerHTML = '<p class="error">Error: ' + res.status + '</p>';
+      return false;
+    }
+    return true;
+  }
+
   async function authedFetch(path) {
     const token = getToken();
     if (!token) return null;
@@ -28,7 +47,7 @@
     });
     if (res.status === 401) {
       clearToken();
-      content.innerHTML = '<p class="error">Unauthorized — token cleared. Refresh to re-enter.</p>';
+      content.innerHTML = '<p class="error">Unauthorized - token cleared. Refresh to re-enter.</p>';
       return null;
     }
     if (!res.ok) {
@@ -46,6 +65,10 @@
     attachRowHandlers();
   }
 
+  function buildWorkloadPath(ns, name) {
+    return "/workload/" + encodeURIComponent(ns) + "/" + encodeURIComponent(name);
+  }
+
   function attachRowHandlers() {
     document.querySelectorAll(".workload-row").forEach(function(row) {
       row.addEventListener("click", async function() {
@@ -53,7 +76,7 @@
         if (this.classList.toggle("expanded")) {
           var ns = this.dataset.ns;
           var name = this.dataset.name;
-          var html = await authedFetch("/workload/" + ns + "/" + name);
+          var html = await authedFetch(buildWorkloadPath(ns, name));
           if (html !== null) detail.innerHTML = html;
         } else {
           detail.innerHTML = "";
@@ -62,13 +85,13 @@
     });
   }
 
-  function connectSSE() {
+  async function connectSSE() {
     if (eventSource) eventSource.close();
 
-    const token = getToken();
-    if (!token) return;
+    const ok = await establishSession();
+    if (!ok) return;
 
-    eventSource = new EventSource("/api/events?token=" + encodeURIComponent(token));
+    eventSource = new EventSource("/api/events");
 
     eventSource.addEventListener("refresh", function() {
       loadDashboard();
@@ -76,6 +99,15 @@
 
     eventSource.onerror = function() {
       // EventSource auto-reconnects
+    };
+  }
+
+  if (window.__TRIVY_DASHBOARD_TEST__) {
+    window.TrivyDashboardTest = {
+      authedFetch,
+      buildWorkloadPath,
+      connectSSE,
+      establishSession
     };
   }
 
