@@ -101,21 +101,20 @@ Jobs:
   - Optionally runs a secret scan, either via existing pre-commit/gitleaks tooling or a dedicated action.
   - Uploads logs/reports as artifacts.
 
-- `image-smoke`
+- `image-validation`
   - Runs only when `changes.outputs.build-needed == 'true'`.
+  - Depends on `changes`, `test`, and `source-security`.
   - Builds a local `linux/amd64` smoke image with `load: true`.
-  - Calls `./.github/actions/image-smoke` after the local image exists.
-  - Runs `go test -tags image_smoke ./internal/smoke -v`.
+  - Tags the image as `trivy-dashboard:smoke`.
+  - Does not push.
+  - Calls `./.github/actions/image-smoke` against `trivy-dashboard:smoke`.
+  - Calls `./.github/actions/image-security` against `trivy-dashboard:smoke`.
+  - The smoke action runs `go test -tags image_smoke ./internal/smoke -v`.
   - The smoke test starts envtest, installs the Trivy `VulnerabilityReport` CRD, creates at least one fixture report, starts the built container, and verifies HTTP output.
-  - Uploads container logs and smoke test output on failure.
-
-- `image-security`
-  - Runs only when `changes.outputs.build-needed == 'true'`.
-  - Uses the same local smoke image tag pattern as `image-smoke`, or rebuilds the local image if job isolation makes sharing impractical.
-  - Calls `./.github/actions/image-security` after the local image exists.
-  - Runs Trivy against the local image before any publish.
-  - Blocks on `CRITICAL,HIGH` findings.
+  - The security action runs Trivy against the local image before any publish.
+  - Blocks on image smoke failures and `CRITICAL,HIGH` image vulnerabilities.
   - Produces:
+    - image smoke logs;
     - SARIF report.
     - JSON report.
     - human-readable table or Markdown summary.
@@ -125,7 +124,7 @@ Jobs:
 - `build`
   - Existing matrix build for `linux/amd64` and `linux/arm64`.
   - Uses `push-by-digest=true`.
-  - Depends on `changes`, `test`, `source-security`, `image-smoke`, and `image-security`.
+  - Depends on `changes`, `test`, `source-security`, and `image-validation`.
   - Runs only when:
     - the event is not `pull_request`;
     - `changes.outputs.build-needed == 'true'`;
@@ -145,12 +144,13 @@ The core dependency graph should be:
 changes
 
 test ───────────────┐
-source-security ────┼── build ── merge
-image-smoke ────────┤
-image-security ─────┘
+source-security ────┼── image-validation ── build ── merge
+                    └───────────────────────┘
 ```
 
-`image-smoke` and `image-security` are skipped when `build-needed` is false. For skipped image jobs, `build` must still be skipped because there is no image to publish.
+`image-validation`, `build`, and `merge` are skipped when `build-needed` is false. In that case no Docker build input changed, so there is no new image content to validate or publish.
+
+The local smoke image build, image smoke test, and image vulnerability scan intentionally run in one job because GitHub Actions jobs do not share Docker daemon state across runners. Keeping them together avoids `docker save`/`docker load` artifact plumbing and ensures both checks run against the exact same local image.
 
 ## Composite Action Responsibilities
 
