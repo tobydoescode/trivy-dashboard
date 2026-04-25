@@ -58,20 +58,34 @@ func TestBearer_RejectsBasicScheme(t *testing.T) {
 	}
 }
 
-func TestBearer_AcceptsQueryToken(t *testing.T) {
+func TestBearer_AllowsSessionCookie(t *testing.T) {
 	h := Bearer("secret")(okHandler())
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/?token=secret", nil)
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "secret"})
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", rec.Code)
 	}
 }
 
-func TestBearer_RejectsWrongQueryToken(t *testing.T) {
+func TestBearer_RejectsWrongSessionCookie(t *testing.T) {
 	h := Bearer("secret")(okHandler())
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/?token=wrong", nil)
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "wrong"})
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestBearer_RejectsQueryToken(t *testing.T) {
+	h := Bearer("secret")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/?token=secret", nil)
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rec.Code)
