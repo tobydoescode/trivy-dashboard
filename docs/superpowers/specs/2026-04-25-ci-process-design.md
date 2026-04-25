@@ -17,6 +17,14 @@ CI should not run full validation on ordinary non-main branch pushes. Those push
 
 Fork PRs must be supported. Jobs that only read source code and build local artifacts can run on fork PRs. Jobs or steps that require write permissions, secrets, package publishing, SARIF upload, or PR comments must be guarded so they do not fail or expose privileged tokens on fork PRs.
 
+The repository's GitHub Actions settings are part of the CI design. Before implementing the workflow, check the repository setting for fork pull request approvals:
+
+- preferred: require approval for all external contributors;
+- acceptable: require approval for first-time contributors;
+- not preferred: automatically run workflows for all external fork PRs.
+
+This setting is not represented in workflow YAML, so the implementation plan should include an explicit setup verification step in the GitHub repository settings.
+
 ## Proposed File Structure
 
 ```text
@@ -104,6 +112,8 @@ Jobs:
 - `image-validation`
   - Runs only when `changes.outputs.build-needed == 'true'`.
   - Depends on `changes`, `test`, and `source-security`.
+  - Runs automatically for trusted PR authors and all trusted push/tag/manual events.
+  - For untrusted fork PRs, either rely on repository-level approval before the workflow starts or require an explicit maintainer-controlled label before running this job.
   - Builds a local `linux/amd64` smoke image with `load: true`.
   - Tags the image as `trivy-dashboard:smoke`.
   - Does not push.
@@ -148,9 +158,68 @@ source-security ────┼── image-validation ── build ── merge
                     └───────────────────────┘
 ```
 
-`image-validation`, `build`, and `merge` are skipped when `build-needed` is false. In that case no Docker build input changed, so there is no new image content to validate or publish.
+`image-validation`, `build`, and `merge` are skipped when `build-needed` is false. In that case no Docker build input changed, so there is no new image content to validate or publish. Source validation still runs for README-only or configuration-only changes so PRs continue to prove the repository is healthy without doing unnecessary image work.
 
 The local smoke image build, image smoke test, and image vulnerability scan intentionally run in one job because GitHub Actions jobs do not share Docker daemon state across runners. Keeping them together avoids `docker save`/`docker load` artifact plumbing and ensures both checks run against the exact same local image.
+
+## PR Trust Policy
+
+Use GitHub's repository-level fork approval settings as the primary control for whether workflows from external contributors start automatically.
+
+Within workflow YAML, distinguish trusted and untrusted contexts for expensive or privileged behavior:
+
+Trusted PR authors:
+
+- `OWNER`
+- `MEMBER`
+- `COLLABORATOR`
+
+Potentially untrusted PR authors:
+
+- `CONTRIBUTOR`
+- `FIRST_TIME_CONTRIBUTOR`
+- `FIRST_TIMER`
+- `NONE`
+
+Fork PR detection:
+
+```yaml
+github.event_name == 'pull_request' &&
+github.event.pull_request.head.repo.full_name != github.repository
+```
+
+Trusted-author check:
+
+```yaml
+contains(
+  fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+  github.event.pull_request.author_association
+)
+```
+
+Recommended behavior:
+
+- Always run lightweight read-only validation once the PR workflow is approved by GitHub: tests, coverage, `go vet`, JS tests, and `govulncheck`.
+- Run image validation automatically for trusted authors.
+- For untrusted fork PRs, either:
+  - rely on "require approval for all external contributors" so maintainers explicitly approve the whole workflow before it starts; or
+  - gate `image-validation` behind a maintainer-applied label such as `run-image-ci`.
+- Never run package publishing on pull requests.
+- Never use `pull_request_target` for workflows that check out and execute PR code.
+
+If label-gating is used, the workflow condition should be explicit:
+
+```yaml
+if: >
+  needs.changes.outputs.build-needed == 'true' &&
+  (
+    github.event_name != 'pull_request' ||
+    contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) ||
+    contains(github.event.pull_request.labels.*.name, 'run-image-ci')
+  )
+```
+
+The simpler preferred policy is repository-level approval for all external contributors plus workflow-level guards only for write-sensitive steps.
 
 ## Composite Action Responsibilities
 
@@ -328,6 +397,17 @@ Non-blocking initially:
 - PR comment publishing.
 
 Coverage should be reported first, not enforced. A minimum threshold can be added later once the baseline is stable.
+
+## Repository Setup Checks
+
+Before implementation is considered complete, verify these repository settings in GitHub:
+
+- Actions are enabled for the repository.
+- Fork pull request workflows require approval from maintainers, preferably for all external contributors.
+- The workflow token default permission is read-only unless a job explicitly requests broader permissions.
+- GHCR package publishing works with `GITHUB_TOKEN` from the `main` branch workflow.
+- Code scanning/SARIF upload is enabled or at least accepted for trusted contexts.
+- Branch protection, if enabled, requires the new CI workflow checks before merging to `main`.
 
 ## Permissions
 
