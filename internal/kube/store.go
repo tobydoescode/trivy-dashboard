@@ -34,9 +34,23 @@ func (s *Store) All() []VulnerabilityReport {
 	defer s.mu.RUnlock()
 	result := make([]VulnerabilityReport, 0, len(s.reports))
 	for _, r := range s.reports {
-		result = append(result, *r)
+		result = append(result, cloneReport(r))
 	}
 	return result
+}
+
+func cloneReport(r *VulnerabilityReport) VulnerabilityReport {
+	clone := *r
+	if r.Labels != nil {
+		clone.Labels = make(map[string]string, len(r.Labels))
+		for k, v := range r.Labels {
+			clone.Labels[k] = v
+		}
+	}
+	if r.Report.Vulns != nil {
+		clone.Report.Vulns = append([]Vulnerability(nil), r.Report.Vulns...)
+	}
+	return clone
 }
 
 // Len returns the number of reports in the store.

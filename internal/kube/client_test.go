@@ -101,3 +101,29 @@ func TestStore(t *testing.T) {
 		t.Error("store should be synced after MarkSynced")
 	}
 }
+
+func TestStoreAllReturnsDeepCopies(t *testing.T) {
+	s := NewStore()
+	s.Set(&VulnerabilityReport{
+		Name:      "report",
+		Namespace: "default",
+		Labels: map[string]string{
+			"trivy-operator.resource.name": "api",
+		},
+		Report: Report{
+			Vulns: []Vulnerability{{ID: "CVE-1", Severity: "HIGH"}},
+		},
+	})
+
+	first := s.All()
+	first[0].Labels["trivy-operator.resource.name"] = "mutated"
+	first[0].Report.Vulns[0].ID = "mutated"
+
+	second := s.All()
+	if second[0].Labels["trivy-operator.resource.name"] != "api" {
+		t.Fatalf("label was mutated through snapshot")
+	}
+	if second[0].Report.Vulns[0].ID != "CVE-1" {
+		t.Fatalf("vulnerability was mutated through snapshot")
+	}
+}
