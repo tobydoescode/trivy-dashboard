@@ -96,13 +96,15 @@ is_dockerignored() {
         if [[ "$pattern" == !* ]]; then
             pattern="${pattern#!}"
             pattern="${pattern%/}"
-            # shellcheck disable=SC2254
+            # Intentionally use dockerignore glob patterns on the right-hand side.
+            # shellcheck disable=SC2053,SC2254
             if [[ "$file" == $pattern || "$file" == $pattern/* ]]; then
                 matched=false
             fi
         else
             pattern="${pattern%/}"
-            # shellcheck disable=SC2254
+            # Intentionally use dockerignore glob patterns on the right-hand side.
+            # shellcheck disable=SC2053,SC2254
             if [[ "$file" == $pattern || "$file" == $pattern/* ]]; then
                 matched=true
             fi
@@ -124,13 +126,16 @@ is_relevant() {
     local file="$1"
 
     if $has_dot_source; then
-        ! is_dockerignored "$file"
-        return
+        if is_dockerignored "$file"; then
+            return 1
+        fi
+        return 0
     fi
 
     for src in "${sources[@]}"; do
         src="${src%/}"
-        # shellcheck disable=SC2254
+        # Intentionally use source path prefixes as shell patterns.
+        # shellcheck disable=SC2053,SC2254
         if [[ "$file" == "$src" || "$file" == $src/* ]]; then
             return 0
         fi
