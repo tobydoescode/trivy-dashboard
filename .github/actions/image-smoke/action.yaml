@@ -1,0 +1,52 @@
+name: Image smoke
+description: Run the envtest-backed smoke test against a local image.
+
+inputs:
+  image-ref:
+    description: Local image reference to test.
+    required: false
+    default: trivy-dashboard:smoke
+  envtest-version:
+    description: Kubernetes envtest binary version.
+    required: false
+    default: 1.35.x!
+
+runs:
+  using: composite
+  steps:
+    - name: Install setup-envtest
+      shell: bash
+      run: go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.23
+
+    - name: Run image smoke test
+      shell: bash
+      env:
+        TRIVY_DASHBOARD_SMOKE_IMAGE: ${{ inputs.image-ref }}
+      run: |
+        set -euo pipefail
+        export KUBEBUILDER_ASSETS="$(setup-envtest use -p path '${{ inputs.envtest-version }}')"
+        go test -tags image_smoke ./internal/smoke -v 2>&1 | tee image-smoke.txt
+
+    - name: Write smoke summary
+      if: always()
+      shell: bash
+      run: |
+        {
+          echo "## Image Smoke Test"
+          echo ""
+          if [[ -s image-smoke.txt ]]; then
+            echo '```'
+            tail -n 120 image-smoke.txt
+            echo '```'
+          else
+            echo "Image smoke test produced no output."
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload image smoke reports
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: image-smoke-reports
+        path: image-smoke.txt
+        if-no-files-found: warn
