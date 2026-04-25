@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tobydoescode/trivy-dashboard/internal/auth"
 	"github.com/tobydoescode/trivy-dashboard/internal/kube"
 	"github.com/tobydoescode/trivy-dashboard/internal/views"
 )
@@ -64,6 +65,51 @@ func TestIndex(t *testing.T) {
 	}
 	if !strings.Contains(body, "app.js") {
 		t.Error("response missing app.js script reference")
+	}
+}
+
+func TestSession_SetsHttpOnlyCookie(t *testing.T) {
+	h := testHandler(t)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/session", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+
+	h.Session(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("cookies = %d, want 1", len(cookies))
+	}
+	got := cookies[0]
+	if got.Name != auth.SessionCookieName {
+		t.Fatalf("cookie name = %q, want %q", got.Name, auth.SessionCookieName)
+	}
+	if got.Value != "secret" {
+		t.Fatalf("cookie value = %q, want secret", got.Value)
+	}
+	if got.Path != "/" {
+		t.Fatalf("cookie path = %q, want /", got.Path)
+	}
+	if !got.HttpOnly {
+		t.Fatal("cookie should be HttpOnly")
+	}
+	if got.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("SameSite = %v, want Strict", got.SameSite)
+	}
+}
+
+func TestSession_RejectsMissingBearerToken(t *testing.T) {
+	h := testHandler(t)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/session", nil)
+
+	h.Session(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
 	}
 }
 

@@ -144,10 +144,12 @@ func main() {
 	mux.HandleFunc("GET /", handler.Index)
 	if token != "" {
 		authed := auth.Bearer(token)
+		mux.Handle("POST /api/session", authed(http.HandlerFunc(handler.Session)))
 		mux.Handle("GET /api/dashboard", authed(http.HandlerFunc(handler.DashboardContent)))
 		mux.Handle("GET /workload/{namespace}/{name}", authed(http.HandlerFunc(handler.WorkloadDetail)))
 		mux.Handle("GET /api/events", authed(http.HandlerFunc(handler.SSE)))
 	} else {
+		mux.HandleFunc("POST /api/session", handler.SessionNoop)
 		mux.HandleFunc("GET /api/dashboard", handler.DashboardContent)
 		mux.HandleFunc("GET /workload/{namespace}/{name}", handler.WorkloadDetail)
 		mux.HandleFunc("GET /api/events", handler.SSE)

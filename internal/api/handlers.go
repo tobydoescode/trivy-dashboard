@@ -5,7 +5,9 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"strings"
 
+	"github.com/tobydoescode/trivy-dashboard/internal/auth"
 	"github.com/tobydoescode/trivy-dashboard/internal/kube"
 )
 
@@ -28,6 +30,31 @@ func (h *Handler) Index(w http.ResponseWriter, _ *http.Request) {
 		slog.Error("failed to render template", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 	}
+}
+
+// Session sets a browser session cookie after bearer authentication succeeds.
+func (h *Handler) Session(w http.ResponseWriter, r *http.Request) {
+	const prefix = "Bearer "
+	hdr := r.Header.Get("Authorization")
+	if !strings.HasPrefix(hdr, prefix) {
+		http.Error(w, "missing bearer token", http.StatusUnauthorized)
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     auth.SessionCookieName,
+		Value:    strings.TrimPrefix(hdr, prefix),
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   r.TLS != nil,
+	})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// SessionNoop accepts browser session setup in tokenless deployments.
+func (h *Handler) SessionNoop(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // DashboardContent renders the dashboard data partial (authenticated).
