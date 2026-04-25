@@ -31,7 +31,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        node --test internal/views/static/app.test.mjs | tee js-test-results.tap
+        node --test internal/views/static_test/app.test.mjs | tee js-test-results.tap
 
     - name: Write coverage summary
       shell: bash

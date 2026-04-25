@@ -2,6 +2,10 @@
 .github
 .gitignore
 .pre-commit-config.yaml
+.worktrees
+AGENTS.md
+CLAUDE.md
 README.md
+docs
 renovate.json
 scripts

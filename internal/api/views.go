@@ -33,6 +33,7 @@ type DashboardSummary struct {
 // WorkloadSummary holds vulnerability data for a single workload.
 type WorkloadSummary struct {
 	Namespace    string
+	ReportName   string
 	WorkloadName string
 	WorkloadKind string
 	Image        string
@@ -58,6 +59,7 @@ func BuildDashboard(reports []kube.VulnerabilityReport) Dashboard {
 
 		ws := WorkloadSummary{
 			Namespace:    r.Namespace,
+			ReportName:   r.Name,
 			WorkloadName: workloadName,
 			WorkloadKind: workloadKind,
 			Image:        image,
