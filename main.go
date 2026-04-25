@@ -65,6 +65,8 @@ func main() {
 	}
 
 	store := kube.NewStore()
+	broker := api.NewBroker(500 * time.Millisecond)
+	defer broker.Shutdown()
 
 	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(dynClient, 30*time.Minute, "", nil)
 	informer := factory.ForResource(vulnReportGVR).Informer()
@@ -72,9 +74,11 @@ func main() {
 	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			handleEvent(store, obj)
+			broker.Notify()
 		},
 		UpdateFunc: func(_, obj interface{}) {
 			handleEvent(store, obj)
+			broker.Notify()
 		},
 		DeleteFunc: func(obj interface{}) {
 			d, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
@@ -84,6 +88,7 @@ func main() {
 			}
 			ns, name, _ := cache.SplitMetaNamespaceKey(d)
 			store.Delete(ns, name)
+			broker.Notify()
 			logger.Info("deleted vulnerability report", "namespace", ns, "name", name)
 		},
 	})
@@ -122,15 +127,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	handler := api.NewHandler(store, tmpl)
+	handler := api.NewHandler(store, tmpl, broker)
 	mux.HandleFunc("GET /", handler.Index)
 	if token != "" {
 		authed := auth.Bearer(token)
 		mux.Handle("GET /api/dashboard", authed(http.HandlerFunc(handler.DashboardContent)))
 		mux.Handle("GET /workload/{namespace}/{name}", authed(http.HandlerFunc(handler.WorkloadDetail)))
+		mux.Handle("GET /api/events", authed(http.HandlerFunc(handler.SSE)))
 	} else {
 		mux.HandleFunc("GET /api/dashboard", handler.DashboardContent)
 		mux.HandleFunc("GET /workload/{namespace}/{name}", handler.WorkloadDetail)
+		mux.HandleFunc("GET /api/events", handler.SSE)
 	}
 
 	staticFS, err := fs.Sub(views.Static, "static")

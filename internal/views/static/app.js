@@ -5,6 +5,8 @@
   const refreshBtn = document.getElementById("refresh");
   const signoutBtn = document.getElementById("signout");
 
+  let eventSource = null;
+
   function getToken() {
     let t = sessionStorage.getItem(TOKEN_KEY);
     if (!t) {
@@ -60,12 +62,31 @@
     });
   }
 
+  function connectSSE() {
+    if (eventSource) eventSource.close();
+
+    const token = getToken();
+    if (!token) return;
+
+    eventSource = new EventSource("/api/events?token=" + encodeURIComponent(token));
+
+    eventSource.addEventListener("refresh", function() {
+      loadDashboard();
+    });
+
+    eventSource.onerror = function() {
+      // EventSource auto-reconnects
+    };
+  }
+
   refreshBtn.addEventListener("click", loadDashboard);
   signoutBtn.addEventListener("click", function() {
     clearToken();
+    if (eventSource) eventSource.close();
     content.innerHTML = "";
     refreshTime.textContent = "—";
   });
 
   loadDashboard();
+  connectSSE();
 })();
