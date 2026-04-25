@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tobydoescode/trivy-dashboard/internal/kube"
 	"github.com/tobydoescode/trivy-dashboard/internal/views"
@@ -21,7 +22,9 @@ func testHandler(t *testing.T, reports ...*kube.VulnerabilityReport) *Handler {
 	for _, r := range reports {
 		store.Set(r)
 	}
-	return NewHandler(store, tmpl)
+	broker := NewBroker(10 * time.Millisecond)
+	t.Cleanup(broker.Shutdown)
+	return NewHandler(store, tmpl, broker)
 }
 
 func sampleReport() *kube.VulnerabilityReport {
