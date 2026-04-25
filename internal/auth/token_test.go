@@ -58,6 +58,26 @@ func TestBearer_RejectsBasicScheme(t *testing.T) {
 	}
 }
 
+func TestBearer_AcceptsQueryToken(t *testing.T) {
+	h := Bearer("secret")(okHandler())
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/?token=secret", nil)
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+}
+
+func TestBearer_RejectsWrongQueryToken(t *testing.T) {
+	h := Bearer("secret")(okHandler())
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/?token=wrong", nil)
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
 func TestBearer_EmptyTokenPanics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

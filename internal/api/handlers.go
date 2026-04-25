@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -8,15 +9,16 @@ import (
 	"github.com/tobydoescode/trivy-dashboard/internal/kube"
 )
 
-// Handler serves the dashboard HTML pages.
+// Handler serves the dashboard HTML pages and SSE stream.
 type Handler struct {
 	store     *kube.Store
 	templates *template.Template
+	broker    *Broker
 }
 
-// NewHandler creates a Handler with the given store and parsed templates.
-func NewHandler(store *kube.Store, templates *template.Template) *Handler {
-	return &Handler{store: store, templates: templates}
+// NewHandler creates a Handler with the given store, templates, and SSE broker.
+func NewHandler(store *kube.Store, templates *template.Template, broker *Broker) *Handler {
+	return &Handler{store: store, templates: templates, broker: broker}
 }
 
 // Index renders the static HTML shell (no data, unauthenticated).
@@ -62,5 +64,38 @@ func (h *Handler) WorkloadDetail(w http.ResponseWriter, r *http.Request) {
 	if err := h.templates.ExecuteTemplate(w, "workload-detail.html", workload); err != nil {
 		slog.Error("failed to render workload detail", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
+	}
+}
+
+// SSE streams server-sent events to the client. A "refresh" event is
+// sent whenever the vulnerability store changes.
+func (h *Handler) SSE(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	ch := h.broker.Subscribe()
+	defer h.broker.Unsubscribe(ch)
+
+	fmt.Fprintf(w, ": connected\n\n")
+	flusher.Flush()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case _, ok := <-ch:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(w, "event: refresh\ndata: reload\n\n")
+			flusher.Flush()
+		}
 	}
 }

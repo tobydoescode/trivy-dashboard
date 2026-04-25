@@ -20,6 +20,13 @@ func Bearer(expected string) func(http.Handler) http.Handler {
 			h := r.Header.Get("Authorization")
 			const prefix = "Bearer "
 			if !strings.HasPrefix(h, prefix) {
+				// Fallback: query parameter (EventSource can't set headers)
+				if qToken := r.URL.Query().Get("token"); qToken != "" {
+					if subtle.ConstantTimeCompare([]byte(qToken), expectedBytes) == 1 {
+						next.ServeHTTP(w, r)
+						return
+					}
+				}
 				w.Header().Set("WWW-Authenticate", `Bearer realm="trivy-dashboard"`)
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
