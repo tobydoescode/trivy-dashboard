@@ -85,6 +85,9 @@ func TestStore(t *testing.T) {
 	}
 	r := &VulnerabilityReport{Name: "test-report", Namespace: "default"}
 	s.Set(r)
+	if got := s.Len(); got != 1 {
+		t.Fatalf("Len() = %d, want 1", got)
+	}
 	all := s.All() // all is now []VulnerabilityReport, not []*VulnerabilityReport
 	if len(all) != 1 {
 		t.Fatalf("expected 1 report, got %d", len(all))
@@ -93,6 +96,9 @@ func TestStore(t *testing.T) {
 		t.Errorf("name = %q, want test-report", all[0].Name)
 	}
 	s.Delete("default", "test-report")
+	if got := s.Len(); got != 0 {
+		t.Fatalf("Len() after delete = %d, want 0", got)
+	}
 	if len(s.All()) != 0 {
 		t.Error("expected 0 reports after delete")
 	}

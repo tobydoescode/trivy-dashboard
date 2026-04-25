@@ -19,7 +19,9 @@ runs:
           -coverprofile=coverage.out \
           -covermode=atomic \
           ./...
+        go test ./internal/... -coverprofile=coverage-internal.out -covermode=atomic
         go tool cover -html=coverage.out -o coverage.html
+        go tool cover -html=coverage-internal.out -o coverage-internal.html
 
     - name: Run go vet
       shell: bash
@@ -37,6 +39,14 @@ runs:
         {
           echo "## Test Coverage"
           echo ""
+          echo "### Internal Packages"
+          echo ""
+          echo '```'
+          go tool cover -func=coverage-internal.out
+          echo '```'
+          echo ""
+          echo "### Whole Repository"
+          echo ""
           echo '```'
           go tool cover -func=coverage.out
           echo '```'
@@ -51,5 +61,7 @@ runs:
           go-test-results.xml
           coverage.out
           coverage.html
+          coverage-internal.out
+          coverage-internal.html
           js-test-results.tap
         if-no-files-found: warn
