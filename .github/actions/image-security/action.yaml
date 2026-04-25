@@ -14,6 +14,10 @@ inputs:
     description: Exit code for blocking vulnerability findings.
     required: false
     default: "1"
+  artifact-suffix:
+    description: Suffix for uploaded artifact names.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -65,7 +69,7 @@ runs:
       if: always()
       uses: actions/upload-artifact@v7
       with:
-        name: image-security-reports
+        name: image-security-reports${{ inputs.artifact-suffix }}
         path: |
           trivy-results.sarif
           trivy-results.json

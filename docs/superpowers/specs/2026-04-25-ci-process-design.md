@@ -109,20 +109,23 @@ Jobs:
   - Optionally runs a secret scan, either via existing pre-commit/gitleaks tooling or a dedicated action.
   - Uploads logs/reports as artifacts.
 
-- `image-validation`
+- `image-build`
   - Runs only when `changes.outputs.build-needed == 'true'`.
   - Depends on `changes`, `test`, and `source-security`.
   - Runs automatically for trusted PR authors and all trusted push/tag/manual events.
   - For untrusted fork PRs, either rely on repository-level approval before the workflow starts or require an explicit maintainer-controlled label before running this job.
-  - Builds a local `linux/amd64` smoke image with `load: true`.
-  - Tags the image as `trivy-dashboard:smoke`.
-  - Does not push.
-  - Calls `./.github/actions/image-smoke` against `trivy-dashboard:smoke`.
-  - Calls `./.github/actions/image-security` against `trivy-dashboard:smoke`.
+  - Runs as a native-platform matrix for `linux/amd64` and `linux/arm64`.
+  - Builds a local publish-candidate image with `load: true`.
+  - Tags the local candidate as `trivy-dashboard:candidate`.
+  - Calls `./.github/actions/image-smoke` against that candidate image.
+  - Calls `./.github/actions/image-security` against that candidate image.
   - The smoke action runs `go test -tags image_smoke ./internal/smoke -v`.
   - The smoke test starts envtest, installs the Trivy `VulnerabilityReport` CRD, creates at least one fixture report, starts the built container, and verifies HTTP output.
-  - The security action runs Trivy against the local image before any publish.
+  - The security action runs Trivy against the candidate image before any publish.
   - Blocks on image smoke failures and `CRITICAL,HIGH` image vulnerabilities.
+  - On pull requests, stops after validation and does not push.
+  - On `main`, tags, and manual publish events, publishes the per-architecture image by digest using the original `push-by-digest=true` model.
+  - Exports pushed image digests for manifest assembly.
   - Produces:
     - image smoke logs;
     - SARIF report.
@@ -131,21 +134,10 @@ Jobs:
   - Uploads reports as artifacts.
   - Uploads SARIF only when the event/context has `security-events: write`.
 
-- `build`
-  - Existing matrix build for `linux/amd64` and `linux/arm64`.
-  - Uses `push-by-digest=true`.
-  - Depends on `changes`, `test`, `source-security`, and `image-validation`.
-  - Runs only when:
-    - the event is not `pull_request`;
-    - `changes.outputs.build-needed == 'true'`;
-    - prior validation jobs passed.
-  - Requires `packages: write`, scoped to this job only.
-  - Publishes per-platform image digests to GHCR.
-
 - `merge`
-  - Existing manifest-list creation.
-  - Depends on `build`.
-  - Runs only when `build` succeeds.
+  - Existing manifest-list creation, now using digests exported by `image-build`.
+  - Depends on `image-build`.
+  - Runs only for non-PR events when `image-build` succeeds.
   - Pushes branch, semver, SHA, and `latest` tags according to current metadata rules.
 
 The core dependency graph should be:
@@ -154,13 +146,13 @@ The core dependency graph should be:
 changes
 
 test ───────────────┐
-source-security ────┼── image-validation ── build ── merge
-                    └───────────────────────┘
+source-security ────┼── image-build ── merge
+                    └─────────────────┘
 ```
 
-`image-validation`, `build`, and `merge` are skipped when `build-needed` is false. In that case no Docker build input changed, so there is no new image content to validate or publish. Source validation still runs for README-only or configuration-only changes so PRs continue to prove the repository is healthy without doing unnecessary image work.
+`image-build` and `merge` are skipped when `build-needed` is false. In that case no Docker build input changed, so there is no new image content to validate or publish. Source validation still runs for README-only or configuration-only changes so PRs continue to prove the repository is healthy without doing unnecessary image work.
 
-The local smoke image build, image smoke test, and image vulnerability scan intentionally run in one job because GitHub Actions jobs do not share Docker daemon state across runners. Keeping them together avoids `docker save`/`docker load` artifact plumbing and ensures both checks run against the exact same local image.
+The local candidate image build, image smoke test, and image vulnerability scan intentionally run in one matrix job per architecture because GitHub Actions jobs do not share Docker daemon state across runners. Publishing then uses the original digest-based per-architecture push and manifest merge flow, preserving the public multi-arch image tags used by Kubernetes.
 
 ## PR Trust Policy
 
@@ -200,10 +192,10 @@ contains(
 Recommended behavior:
 
 - Always run lightweight read-only validation once the PR workflow is approved by GitHub: tests, coverage, `go vet`, JS tests, and `govulncheck`.
-- Run image validation automatically for trusted authors.
+- Run image build/validation automatically for trusted authors.
 - For untrusted fork PRs, either:
   - rely on "require approval for all external contributors" so maintainers explicitly approve the whole workflow before it starts; or
-  - gate `image-validation` behind a maintainer-applied label such as `run-image-ci`.
+  - gate `image-build` behind a maintainer-applied label such as `run-image-ci`.
 - Never run package publishing on pull requests.
 - Never use `pull_request_target` for workflows that check out and execute PR code.
 
