@@ -1,6 +1,6 @@
 .DS_Store
 *.test
-/bin/
-/dist/
-/docs/superpowers/
+bin/
+dist/
+docs/superpowers/
 .worktrees/
