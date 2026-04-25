@@ -12,7 +12,6 @@ permissions:
 
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/trivy-dashboard
-  CANDIDATE_IMAGE: trivy-dashboard:candidate
 
 jobs:
   changes:
@@ -110,19 +109,19 @@ jobs:
           context: .
           platforms: ${{ matrix.platform }}
           load: true
-          tags: ${{ env.CANDIDATE_IMAGE }}
+          tags: ${{ env.IMAGE }}:arch-${{ matrix.arch }}-sha-${{ github.sha }}
           push: false
           cache-from: type=gha,scope=build-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=build-${{ matrix.arch }}
 
       - uses: ./.github/actions/image-smoke
         with:
-          image-ref: ${{ env.CANDIDATE_IMAGE }}
+          image-ref: ${{ env.IMAGE }}:arch-${{ matrix.arch }}-sha-${{ github.sha }}
           artifact-suffix: -${{ matrix.arch }}
 
       - uses: ./.github/actions/image-security
         with:
-          image-ref: ${{ env.CANDIDATE_IMAGE }}
+          image-ref: ${{ env.IMAGE }}:arch-${{ matrix.arch }}-sha-${{ github.sha }}
           artifact-suffix: -${{ matrix.arch }}
 
       - name: Upload Trivy SARIF
@@ -138,21 +137,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - id: publish
+      - name: Push validated arch image
         if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: ${{ matrix.platform }}
-          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=build-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=build-${{ matrix.arch }}
+        run: docker push "${{ env.IMAGE }}:arch-${{ matrix.arch }}-sha-${{ github.sha }}"
 
       - name: Export digest
         if: github.event_name != 'pull_request'
         run: |
           mkdir -p /tmp/digests
-          digest="${{ steps.publish.outputs.digest }}"
+          digest="$(docker buildx imagetools inspect "${{ env.IMAGE }}:arch-${{ matrix.arch }}-sha-${{ github.sha }}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
           touch "/tmp/digests/${digest#sha256:}"
 
       - uses: actions/upload-artifact@v7

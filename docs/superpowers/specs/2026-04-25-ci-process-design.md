@@ -116,7 +116,7 @@ Jobs:
   - For untrusted fork PRs, either rely on repository-level approval before the workflow starts or require an explicit maintainer-controlled label before running this job.
   - Runs as a native-platform matrix for `linux/amd64` and `linux/arm64`.
   - Builds a local publish-candidate image with `load: true`.
-  - Tags the local candidate as `trivy-dashboard:candidate`.
+  - Tags the local candidate as `ghcr.io/<owner>/trivy-dashboard:arch-<arch>-sha-<sha>`.
   - Calls `./.github/actions/image-smoke` against that candidate image.
   - Calls `./.github/actions/image-security` against that candidate image.
   - The smoke action runs `go test -tags image_smoke ./internal/smoke -v`.
@@ -124,8 +124,8 @@ Jobs:
   - The security action runs Trivy against the candidate image before any publish.
   - Blocks on image smoke failures and `CRITICAL,HIGH` image vulnerabilities.
   - On pull requests, stops after validation and does not push.
-  - On `main`, tags, and manual publish events, publishes the per-architecture image by digest using the original `push-by-digest=true` model.
-  - Exports pushed image digests for manifest assembly.
+  - On `main`, tags, and manual publish events, pushes the validated per-architecture image using the same `arch-<arch>-sha-<sha>` tag.
+  - Exports pushed image digests for multi-arch manifest assembly.
   - Produces:
     - image smoke logs;
     - SARIF report.
@@ -152,7 +152,7 @@ source-security ────┼── image-build ── merge
 
 `image-build` and `merge` are skipped when `build-needed` is false. In that case no Docker build input changed, so there is no new image content to validate or publish. Source validation still runs for README-only or configuration-only changes so PRs continue to prove the repository is healthy without doing unnecessary image work.
 
-The local candidate image build, image smoke test, and image vulnerability scan intentionally run in one matrix job per architecture because GitHub Actions jobs do not share Docker daemon state across runners. Publishing then uses the original digest-based per-architecture push and manifest merge flow, preserving the public multi-arch image tags used by Kubernetes.
+The local candidate image build, image smoke test, image vulnerability scan, and arch-image push intentionally run in one matrix job per architecture because GitHub Actions jobs do not share Docker daemon state across runners. The final `merge` job creates the Kubernetes-facing multi-arch tags from those validated arch image digests.
 
 ## PR Trust Policy
 
