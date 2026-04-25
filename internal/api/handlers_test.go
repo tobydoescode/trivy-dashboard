@@ -1,10 +1,13 @@
 package api
 
 import (
+	"bytes"
+	"context"
 	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -193,3 +196,92 @@ func TestWorkloadDetail_NotFound(t *testing.T) {
 		t.Errorf("status = %d, want 404", rec.Code)
 	}
 }
+
+func TestSSE_ConnectsWithSessionCookie(t *testing.T) {
+	h := testHandler(t)
+	protected := auth.Bearer("secret")(http.HandlerFunc(h.SSE))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/events", nil)
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: "secret"})
+	rec := newFlushRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		protected.ServeHTTP(rec, req)
+	}()
+
+	select {
+	case <-rec.wrote:
+	case <-time.After(500 * time.Millisecond):
+		cancel()
+		t.Fatal("timed out waiting for SSE greeting")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("SSE handler did not exit after context cancellation")
+	}
+
+	if rec.code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.code, http.StatusOK)
+	}
+	if !strings.HasPrefix(rec.header.Get("Content-Type"), "text/event-stream") {
+		t.Fatalf("Content-Type = %q, want text/event-stream", rec.header.Get("Content-Type"))
+	}
+	if !strings.Contains(rec.body.String(), ": connected\n\n") {
+		t.Fatalf("SSE response missing connected greeting: %q", rec.body.String())
+	}
+}
+
+func TestAuthenticatedSSE_RejectsQueryToken(t *testing.T) {
+	h := testHandler(t)
+	protected := auth.Bearer("secret")(http.HandlerFunc(h.SSE))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/events?token=secret", nil)
+	rec := httptest.NewRecorder()
+
+	protected.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+type flushRecorder struct {
+	header http.Header
+	body   bytes.Buffer
+	code   int
+	once   sync.Once
+	wrote  chan struct{}
+}
+
+func newFlushRecorder() *flushRecorder {
+	return &flushRecorder{
+		header: make(http.Header),
+		code:   http.StatusOK,
+		wrote:  make(chan struct{}),
+	}
+}
+
+func (r *flushRecorder) Header() http.Header {
+	return r.header
+}
+
+func (r *flushRecorder) Write(p []byte) (int, error) {
+	n, err := r.body.Write(p)
+	r.once.Do(func() {
+		close(r.wrote)
+	})
+	return n, err
+}
+
+func (r *flushRecorder) WriteHeader(code int) {
+	r.code = code
+}
+
+func (r *flushRecorder) Flush() {}
