@@ -13,7 +13,7 @@
     <tbody>
         {{range .Vulns}}
         <tr class="severity-{{.Severity}}">
-            <td><a href="{{.PrimaryLink}}" target="_blank" rel="noopener">{{.ID}}</a></td>
+            <td><a href="{{safeURL .PrimaryLink}}" target="_blank" rel="noopener">{{.ID}}</a></td>
             <td>{{.Severity}}</td>
             <td>{{printf "%.1f" .Score}}</td>
             <td>{{.Resource}}</td>

@@ -114,7 +114,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	tmpl, err := template.ParseFS(views.Templates, "templates/*.html")
+	tmpl, err := template.New("").Funcs(api.TemplateFuncs()).ParseFS(views.Templates, "templates/*.html")
 	if err != nil {
 		logger.Error("failed to parse templates", "err", err)
 		os.Exit(1)
