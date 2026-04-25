@@ -39,6 +39,13 @@ func (s *Store) All() []VulnerabilityReport {
 	return result
 }
 
+// Len returns the number of reports in the store.
+func (s *Store) Len() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.reports)
+}
+
 // MarkSynced marks the store as having completed initial sync.
 func (s *Store) MarkSynced() {
 	s.mu.Lock()

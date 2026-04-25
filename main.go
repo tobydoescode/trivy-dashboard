@@ -20,9 +20,13 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"github.com/tobydoescode/trivy-dashboard/internal/api"
 	"github.com/tobydoescode/trivy-dashboard/internal/auth"
 	"github.com/tobydoescode/trivy-dashboard/internal/kube"
+	"github.com/tobydoescode/trivy-dashboard/internal/metrics"
 	"github.com/tobydoescode/trivy-dashboard/internal/views"
 )
 
@@ -35,6 +39,10 @@ var vulnReportGVR = schema.GroupVersionResource{
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
+
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(prometheus.NewGoCollector(), prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
+	m := metrics.New(reg)
 
 	addr := os.Getenv("TRIVY_DASHBOARD_ADDR")
 	if addr == "" {
@@ -74,10 +82,12 @@ func main() {
 	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			handleEvent(store, obj)
+			m.SetStoreSize(store.Len())
 			broker.Notify()
 		},
 		UpdateFunc: func(_, obj interface{}) {
 			handleEvent(store, obj)
+			m.SetStoreSize(store.Len())
 			broker.Notify()
 		},
 		DeleteFunc: func(obj interface{}) {
@@ -88,6 +98,7 @@ func main() {
 			}
 			ns, name, _ := cache.SplitMetaNamespaceKey(d)
 			store.Delete(ns, name)
+			m.SetStoreSize(store.Len())
 			broker.Notify()
 			logger.Info("deleted vulnerability report", "namespace", ns, "name", name)
 		},
@@ -107,9 +118,11 @@ func main() {
 		os.Exit(1)
 	}
 	store.MarkSynced()
+	m.SetSynced(true)
 	logger.Info("informer cache synced")
 
 	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -149,7 +162,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           api.SecurityHeaders(mux),
+		Handler:           m.InstrumentHandler(api.SecurityHeaders(mux)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
