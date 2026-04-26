@@ -90,7 +90,7 @@ func TestImageRendersVulnerabilityReportFromKubernetesAPI(t *testing.T) {
 	assertContains(t, dashboard, "1 Critical")
 	assertContains(t, dashboard, "rag-red")
 
-	detail := getBody(t, ctx, "http://127.0.0.1:"+dashboardPort+"/workload/web/nginx-abc")
+	detail := getBody(t, ctx, "http://127.0.0.1:"+dashboardPort+"/workload/web/replicaset-nginx-abc-nginx")
 	assertContains(t, detail, "CVE-2024-0001")
 	assertContains(t, detail, "CRITICAL")
 	assertContains(t, detail, "libcurl")

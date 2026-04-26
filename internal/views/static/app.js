@@ -4,10 +4,12 @@
   const refreshTime = document.getElementById("refresh-time");
   const refreshBtn = document.getElementById("refresh");
   const signoutBtn = document.getElementById("signout");
+  const authRequired = document.getElementById("auth-required")?.dataset.required !== "false";
 
   let eventSource = null;
 
   function getToken() {
+    if (!authRequired) return "";
     let t = sessionStorage.getItem(TOKEN_KEY);
     if (!t) {
       t = window.prompt("Enter trivy-dashboard bearer token:");
@@ -21,6 +23,7 @@
   }
 
   async function establishSession() {
+    if (!authRequired) return true;
     const token = getToken();
     if (!token) return false;
     const res = await fetch("/api/session", {
@@ -41,10 +44,10 @@
 
   async function authedFetch(path) {
     const token = getToken();
-    if (!token) return null;
-    const res = await fetch(path, {
-      headers: { "Authorization": "Bearer " + token }
-    });
+    if (authRequired && !token) return null;
+    const headers = {};
+    if (authRequired) headers.Authorization = "Bearer " + token;
+    const res = await fetch(path, { headers });
     if (res.status === 401) {
       clearToken();
       content.innerHTML = '<p class="error">Unauthorized - token cleared. Refresh to re-enter.</p>';

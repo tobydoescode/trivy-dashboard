@@ -17,6 +17,10 @@ import (
 )
 
 func testHandler(t *testing.T, reports ...*kube.VulnerabilityReport) *Handler {
+	return testHandlerWithOptions(t, HandlerOptions{}, reports...)
+}
+
+func testHandlerWithOptions(t *testing.T, opts HandlerOptions, reports ...*kube.VulnerabilityReport) *Handler {
 	t.Helper()
 	tmpl, err := template.New("").Funcs(TemplateFuncs()).ParseFS(views.Templates, "templates/*.html")
 	if err != nil {
@@ -28,7 +32,7 @@ func testHandler(t *testing.T, reports ...*kube.VulnerabilityReport) *Handler {
 	}
 	broker := NewBroker(10 * time.Millisecond)
 	t.Cleanup(broker.Shutdown)
-	return NewHandler(store, tmpl, broker)
+	return NewHandler(store, tmpl, broker, opts)
 }
 
 func sampleReport() *kube.VulnerabilityReport {
@@ -69,6 +73,23 @@ func TestIndex(t *testing.T) {
 	if !strings.Contains(body, "app.js") {
 		t.Error("response missing app.js script reference")
 	}
+	if !strings.Contains(body, `id="auth-required" data-required="false"`) {
+		t.Error("response should expose tokenless auth mode")
+	}
+}
+
+func TestIndex_AuthRequired(t *testing.T) {
+	h := testHandlerWithOptions(t, HandlerOptions{AuthRequired: true})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/", nil)
+	h.Index(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `id="auth-required" data-required="true"`) {
+		t.Error("response should expose required auth mode")
+	}
 }
 
 func TestSession_SetsHttpOnlyCookie(t *testing.T) {
@@ -101,6 +122,26 @@ func TestSession_SetsHttpOnlyCookie(t *testing.T) {
 	}
 	if got.SameSite != http.SameSiteStrictMode {
 		t.Fatalf("SameSite = %v, want Strict", got.SameSite)
+	}
+}
+
+func TestSession_CanForceSecureCookieBehindProxy(t *testing.T) {
+	h := testHandlerWithOptions(t, HandlerOptions{AuthRequired: true, SecureCookies: true})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/session", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+
+	h.Session(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("cookies = %d, want 1", len(cookies))
+	}
+	if !cookies[0].Secure {
+		t.Fatal("cookie should be Secure when SecureCookies is enabled")
 	}
 }
 
@@ -161,9 +202,9 @@ func TestDashboardContent_WithData(t *testing.T) {
 func TestWorkloadDetail_Found(t *testing.T) {
 	h := testHandler(t, sampleReport())
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/workload/web/nginx-abc", nil)
+	req := httptest.NewRequest("GET", "/workload/web/replicaset-nginx-abc-nginx", nil)
 	req.SetPathValue("namespace", "web")
-	req.SetPathValue("name", "nginx-abc")
+	req.SetPathValue("report", "replicaset-nginx-abc-nginx")
 	h.WorkloadDetail(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -184,12 +225,47 @@ func TestWorkloadDetail_Found(t *testing.T) {
 	}
 }
 
+func TestWorkloadDetail_UsesReportNameToDisambiguateSameWorkload(t *testing.T) {
+	apiReport := sampleReport()
+	apiReport.Name = "replicaset-api-api"
+	apiReport.Labels["trivy-operator.resource.name"] = "api"
+	apiReport.Report.Artifact = kube.Artifact{Repository: "myorg/api", Tag: "v1"}
+	apiReport.Report.Vulns = []kube.Vulnerability{{ID: "CVE-API", Severity: "HIGH", Resource: "api"}}
+
+	sidecarReport := sampleReport()
+	sidecarReport.Name = "replicaset-api-sidecar"
+	sidecarReport.Labels = map[string]string{
+		"trivy-operator.resource.kind": "ReplicaSet",
+		"trivy-operator.resource.name": "api",
+	}
+	sidecarReport.Report.Artifact = kube.Artifact{Repository: "myorg/sidecar", Tag: "v1"}
+	sidecarReport.Report.Vulns = []kube.Vulnerability{{ID: "CVE-SIDECAR", Severity: "HIGH", Resource: "sidecar"}}
+
+	h := testHandler(t, apiReport, sidecarReport)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/workload/web/replicaset-api-sidecar", nil)
+	req.SetPathValue("namespace", "web")
+	req.SetPathValue("report", "replicaset-api-sidecar")
+	h.WorkloadDetail(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "CVE-SIDECAR") {
+		t.Fatalf("detail should contain sidecar CVE, got %q", body)
+	}
+	if strings.Contains(body, "CVE-API") {
+		t.Fatalf("detail should not contain API CVE, got %q", body)
+	}
+}
+
 func TestWorkloadDetail_NotFound(t *testing.T) {
 	h := testHandler(t, sampleReport())
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/workload/nope/nope", nil)
 	req.SetPathValue("namespace", "nope")
-	req.SetPathValue("name", "nope")
+	req.SetPathValue("report", "nope")
 	h.WorkloadDetail(rec, req)
 
 	if rec.Code != http.StatusNotFound {

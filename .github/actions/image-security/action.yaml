@@ -14,6 +14,10 @@ inputs:
     description: Exit code for blocking vulnerability findings.
     required: false
     default: "1"
+  trivy-version:
+    description: Trivy CLI version to install.
+    required: false
+    default: v0.70.0
   artifact-suffix:
     description: Suffix for uploaded artifact names.
     required: false
@@ -23,31 +27,34 @@ runs:
   using: composite
   steps:
     - name: Generate Trivy SARIF report
-      uses: aquasecurity/trivy-action@master
+      uses: aquasecurity/trivy-action@v0.35.0
       with:
         image-ref: ${{ inputs.image-ref }}
         format: sarif
         output: trivy-results.sarif
         severity: ${{ inputs.severity }}
         exit-code: "0"
+        version: ${{ inputs.trivy-version }}
 
     - name: Generate Trivy JSON report
-      uses: aquasecurity/trivy-action@master
+      uses: aquasecurity/trivy-action@v0.35.0
       with:
         image-ref: ${{ inputs.image-ref }}
         format: json
         output: trivy-results.json
         severity: ${{ inputs.severity }}
         exit-code: "0"
+        version: ${{ inputs.trivy-version }}
 
     - name: Scan image with Trivy
-      uses: aquasecurity/trivy-action@master
+      uses: aquasecurity/trivy-action@v0.35.0
       with:
         image-ref: ${{ inputs.image-ref }}
         format: table
         output: trivy-results.txt
         severity: ${{ inputs.severity }}
         exit-code: ${{ inputs.exit-code }}
+        version: ${{ inputs.trivy-version }}
 
     - name: Write image security summary
       if: always()

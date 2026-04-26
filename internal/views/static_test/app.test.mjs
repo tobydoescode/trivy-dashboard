@@ -4,7 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 
 async function loadApp(options = {}) {
-  const script = await readFile(new URL("./app.js", import.meta.url), "utf8");
+  const script = await readFile(new URL("../static/app.js", import.meta.url), "utf8");
   const store = new Map();
   const elements = new Map();
   const eventSourceURLs = [];
@@ -14,6 +14,7 @@ async function loadApp(options = {}) {
     if (!elements.has(id)) {
       elements.set(id, {
         id,
+        dataset: {},
         innerHTML: "",
         textContent: "",
         addEventListener() {}
@@ -65,6 +66,7 @@ async function loadApp(options = {}) {
       }
     }
   };
+  element("auth-required").dataset.required = options.authRequired === false ? "false" : "true";
   context.window.document = context.document;
   context.window.EventSource = context.EventSource;
   context.window.fetch = context.fetch;
@@ -107,4 +109,14 @@ test("401 clears stored token and shows unauthorized message", async () => {
 
   assert.equal(store.has("trivy-dashboard.token"), false);
   assert.match(elements.get("content").innerHTML, /Unauthorized/);
+});
+
+test("tokenless mode fetches without prompt or bearer header", async () => {
+  const { context, fetchCalls } = await loadApp({ authRequired: false });
+
+  await context.window.TrivyDashboardTest.authedFetch("/api/dashboard");
+
+  const dashboardCall = fetchCalls.find((call) => call.path === "/api/dashboard");
+  assert.equal(dashboardCall.init.headers.Authorization, undefined);
+  assert.equal(fetchCalls.some((call) => call.path === "/api/session"), false);
 });

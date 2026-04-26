@@ -66,6 +66,9 @@ func TestBuildDashboard(t *testing.T) {
 	if w0.Namespace != "web" {
 		t.Errorf("first workload namespace = %q, want web", w0.Namespace)
 	}
+	if w0.ReportName != "replicaset-nginx-abc-nginx" {
+		t.Errorf("first workload report name = %q, want replicaset-nginx-abc-nginx", w0.ReportName)
+	}
 	if w0.RAG != RAGRed {
 		t.Errorf("first workload RAG = %q, want %q", w0.RAG, RAGRed)
 	}
@@ -73,6 +76,52 @@ func TestBuildDashboard(t *testing.T) {
 	w1 := dash.Workloads[1]
 	if w1.RAG != RAGAmber {
 		t.Errorf("second workload RAG = %q, want %q", w1.RAG, RAGAmber)
+	}
+}
+
+func TestBuildDashboard_DistinguishesReportsForSameWorkload(t *testing.T) {
+	reports := []kube.VulnerabilityReport{
+		{
+			Name:      "replicaset-api-api",
+			Namespace: "backend",
+			Labels: map[string]string{
+				"trivy-operator.resource.kind": "ReplicaSet",
+				"trivy-operator.resource.name": "api",
+			},
+			Report: kube.Report{
+				Artifact: kube.Artifact{Repository: "myorg/api", Tag: "v1"},
+			},
+		},
+		{
+			Name:      "replicaset-api-sidecar",
+			Namespace: "backend",
+			Labels: map[string]string{
+				"trivy-operator.resource.kind": "ReplicaSet",
+				"trivy-operator.resource.name": "api",
+			},
+			Report: kube.Report{
+				Artifact: kube.Artifact{Repository: "myorg/sidecar", Tag: "v1"},
+			},
+		},
+	}
+
+	dash := BuildDashboard(reports)
+
+	if len(dash.Workloads) != 2 {
+		t.Fatalf("workloads count = %d, want 2", len(dash.Workloads))
+	}
+	seen := map[string]bool{}
+	for _, workload := range dash.Workloads {
+		if workload.WorkloadName != "api" {
+			t.Fatalf("workload name = %q, want api", workload.WorkloadName)
+		}
+		if workload.ReportName == "" {
+			t.Fatal("report name should identify the backing VulnerabilityReport")
+		}
+		seen[workload.ReportName] = true
+	}
+	if !seen["replicaset-api-api"] || !seen["replicaset-api-sidecar"] {
+		t.Fatalf("report names = %#v, want both reports", seen)
 	}
 }
 

@@ -19,7 +19,7 @@
     </thead>
     <tbody>
         {{range .Workloads}}
-        <tr class="workload-row rag-{{.RAG}}" data-ns="{{.Namespace}}" data-name="{{.WorkloadName}}">
+        <tr class="workload-row rag-{{.RAG}}" data-ns="{{.Namespace}}" data-name="{{.ReportName}}">
             <td>{{.Namespace}}/{{.WorkloadName}}</td>
             <td class="image">{{.Image}}</td>
             <td class="count">{{.Critical}}</td>

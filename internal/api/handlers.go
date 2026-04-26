@@ -13,20 +13,43 @@ import (
 
 // Handler serves the dashboard HTML pages and SSE stream.
 type Handler struct {
-	store     *kube.Store
-	templates *template.Template
-	broker    *Broker
+	store         *kube.Store
+	templates     *template.Template
+	broker        *Broker
+	authRequired  bool
+	secureCookies bool
+}
+
+// HandlerOptions configures browser-visible auth behavior.
+type HandlerOptions struct {
+	AuthRequired  bool
+	SecureCookies bool
 }
 
 // NewHandler creates a Handler with the given store, templates, and SSE broker.
-func NewHandler(store *kube.Store, templates *template.Template, broker *Broker) *Handler {
-	return &Handler{store: store, templates: templates, broker: broker}
+func NewHandler(store *kube.Store, templates *template.Template, broker *Broker, opts ...HandlerOptions) *Handler {
+	var opt HandlerOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+	return &Handler{
+		store:         store,
+		templates:     templates,
+		broker:        broker,
+		authRequired:  opt.AuthRequired,
+		secureCookies: opt.SecureCookies,
+	}
 }
 
 // Index renders the static HTML shell (no data, unauthenticated).
 func (h *Handler) Index(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := h.templates.ExecuteTemplate(w, "index.html", nil); err != nil {
+	data := struct {
+		AuthRequired bool
+	}{
+		AuthRequired: h.authRequired,
+	}
+	if err := h.templates.ExecuteTemplate(w, "index.html", data); err != nil {
 		slog.Error("failed to render template", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 	}
@@ -47,7 +70,7 @@ func (h *Handler) Session(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   r.TLS != nil,
+		Secure:   h.secureCookies || r.TLS != nil,
 	})
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -70,13 +93,13 @@ func (h *Handler) DashboardContent(w http.ResponseWriter, _ *http.Request) {
 // WorkloadDetail renders the detail page for a single workload.
 func (h *Handler) WorkloadDetail(w http.ResponseWriter, r *http.Request) {
 	namespace := r.PathValue("namespace")
-	name := r.PathValue("name")
+	reportName := r.PathValue("report")
 
 	dash := BuildDashboard(h.store.All())
 
 	var workload *WorkloadSummary
 	for i := range dash.Workloads {
-		if dash.Workloads[i].Namespace == namespace && dash.Workloads[i].WorkloadName == name {
+		if dash.Workloads[i].Namespace == namespace && dash.Workloads[i].ReportName == reportName {
 			workload = &dash.Workloads[i]
 			break
 		}
