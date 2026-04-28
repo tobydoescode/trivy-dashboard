@@ -1,0 +1,97 @@
+version: "3"
+
+vars:
+  IMAGE: ghcr.io/tobydoescode/trivy-dashboard
+  COVERAGE_DIR: .coverage
+
+tasks:
+  default:
+    desc: List available tasks
+    silent: true
+    cmds:
+      - task --list-all
+
+  run:
+    desc: Run the dashboard locally (needs KUBECONFIG)
+    cmds:
+      - go run ./
+
+  fmt:
+    desc: Format Go source files
+    cmds:
+      - gofmt -w .
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  test:
+    desc: Run all tests (Go + JS)
+    deps: [test:go, test:js]
+
+  test:go:
+    desc: Run Go unit tests
+    cmds:
+      - go test ./...
+
+  test:js:
+    desc: Run JavaScript tests
+    cmds:
+      - node --test internal/views/static_test/app.test.mjs
+
+  test:cover:
+    desc: Run Go tests with coverage report
+    cmds:
+      - mkdir -p {{.COVERAGE_DIR}}
+      - go test -coverprofile={{.COVERAGE_DIR}}/coverage.out -covermode=atomic ./...
+      - go tool cover -html={{.COVERAGE_DIR}}/coverage.out -o {{.COVERAGE_DIR}}/coverage.html
+      - go tool cover -func={{.COVERAGE_DIR}}/coverage.out
+    sources:
+      - "**/*.go"
+    generates:
+      - "{{.COVERAGE_DIR}}/coverage.out"
+      - "{{.COVERAGE_DIR}}/coverage.html"
+
+  lint:
+    desc: Run all lints (vet + shellcheck)
+    cmds:
+      - task: vet
+      - shellcheck scripts/*.sh
+
+  vuln:
+    desc: Run govulncheck
+    cmds:
+      - govulncheck ./...
+
+  build:
+    desc: Fully build
+    deps: [build:binary, build:docker]
+
+  build:binary:
+    desc: Build the binary
+    cmds:
+      - CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o trivy-dashboard ./
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - trivy-dashboard
+
+  build:docker:
+    desc: Build the Docker image
+    cmds:
+      - docker build -t {{.IMAGE}}:local .
+
+  deps:
+    desc: Download and tidy Go modules
+    cmds:
+      - go mod download
+      - go mod tidy
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -f trivy-dashboard
+      - rm -rf {{.COVERAGE_DIR}}

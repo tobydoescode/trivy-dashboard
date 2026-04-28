@@ -2,5 +2,9 @@
 *.test
 bin/
 dist/
+trivy-dashboard
+.coverage/
+.task/
 docs/superpowers/
 .worktrees/
+TODO.md
