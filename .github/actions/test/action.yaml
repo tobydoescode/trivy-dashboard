@@ -23,6 +23,13 @@ runs:
         go tool cover -html=coverage.out -o coverage.html
         go tool cover -html=coverage-internal.out -o coverage-internal.html
 
+    - name: Check go mod tidy
+      shell: bash
+      run: |
+        set -euo pipefail
+        go mod tidy
+        git diff --exit-code go.mod go.sum
+
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@v8
       with:
