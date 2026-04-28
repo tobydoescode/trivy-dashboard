@@ -33,7 +33,7 @@ runs:
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@v8
       with:
-        version: v2.1.6
+        version: v2.11.4
 
     - name: Run JS smoke tests
       shell: bash
