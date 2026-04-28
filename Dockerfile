@@ -14,6 +14,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -trimpath -ldflags="-s -w" -o /out/trivy-dashboard ./
 
 FROM gcr.io/distroless/static-debian13:nonroot@sha256:e3f945647ffb95b5839c07038d64f9811adf17308b9121d8a2b87b6a22a80a39
+LABEL org.opencontainers.image.source="https://github.com/tobydoescode/trivy-dashboard" \
+      org.opencontainers.image.description="Trivy Operator vulnerability dashboard" \
+      org.opencontainers.image.licenses="MIT"
 COPY --from=build /out/trivy-dashboard /trivy-dashboard
 USER nonroot:nonroot
 EXPOSE 8080
