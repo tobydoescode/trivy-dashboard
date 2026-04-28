@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -51,7 +52,7 @@ func main() {
 	}
 
 	token := os.Getenv("TRIVY_DASHBOARD_TOKEN")
-	secureCookies := os.Getenv("TRIVY_DASHBOARD_SECURE_COOKIES") == "true"
+	secureCookies, _ := strconv.ParseBool(os.Getenv("TRIVY_DASHBOARD_SECURE_COOKIES"))
 
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
