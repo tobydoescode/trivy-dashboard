@@ -52,6 +52,10 @@ func main() {
 	}
 
 	token := os.Getenv("TRIVY_DASHBOARD_TOKEN")
+	if token != "" && len(token) < 16 {
+		logger.Error("TRIVY_DASHBOARD_TOKEN must be at least 16 characters")
+		os.Exit(1)
+	}
 	secureCookies, _ := strconv.ParseBool(os.Getenv("TRIVY_DASHBOARD_SECURE_COOKIES"))
 
 	cfg, err := rest.InClusterConfig()

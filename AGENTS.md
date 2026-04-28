@@ -69,7 +69,7 @@ Auth only active when `TRIVY_DASHBOARD_TOKEN` env var is set.
 | Var | Default | Purpose |
 |-----|---------|---------|
 | `TRIVY_DASHBOARD_ADDR` | `:8080` | Listen address |
-| `TRIVY_DASHBOARD_TOKEN` | unset | Enables bearer auth + session cookies |
+| `TRIVY_DASHBOARD_TOKEN` | unset | Enables bearer auth + session cookies (min 16 chars) |
 | `TRIVY_DASHBOARD_SECURE_COOKIES` | `false` | Force `Secure` flag on cookies |
 | `KUBECONFIG` | `~/.kube/config` | Outside-cluster only |
 

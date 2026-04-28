@@ -40,7 +40,7 @@ Amber, Green otherwise.
 | Var | Default | Purpose |
 | --- | ------- | ------- |
 | `TRIVY_DASHBOARD_ADDR` | `:8080` | Listen address |
-| `TRIVY_DASHBOARD_TOKEN` | _unset_ | If set, `/api/*` and `/workload/*` require `Authorization: Bearer <token>`. If unset, those routes are public. |
+| `TRIVY_DASHBOARD_TOKEN` | _unset_ | If set, `/api/*` and `/workload/*` require `Authorization: Bearer <token>` (min 16 characters). If unset, those routes are public. |
 | `TRIVY_DASHBOARD_SECURE_COOKIES` | `false` | If `true`, always mark browser session cookies as `Secure`. Useful when the app runs behind TLS-terminating ingress. |
 | `KUBECONFIG` | `~/.kube/config` | Only used outside the cluster when in-cluster config isn't available |
 
