@@ -57,7 +57,11 @@ func main() {
 	if err != nil {
 		kubeconfig := os.Getenv("KUBECONFIG")
 		if kubeconfig == "" {
-			home, _ := os.UserHomeDir()
+			home, err := os.UserHomeDir()
+			if err != nil {
+				logger.Error("failed to determine home directory", "err", err)
+				os.Exit(1)
+			}
 			kubeconfig = home + "/.kube/config"
 		}
 		cfg, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
