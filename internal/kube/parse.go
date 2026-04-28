@@ -2,6 +2,7 @@ package kube
 
 import (
 	"fmt"
+	"log/slog"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -30,9 +31,10 @@ func ParseVulnerabilityReport(obj *unstructured.Unstructured) (*VulnerabilityRep
 		report.Report.Summary.Unknown = intFromUnstructured(summary, "unknownCount")
 	}
 	if vulns, ok := r["vulnerabilities"].([]interface{}); ok {
-		for _, vi := range vulns {
+		for i, vi := range vulns {
 			vm, ok := vi.(map[string]interface{})
 			if !ok {
+				slog.Warn("skipping malformed vulnerability entry", "report", obj.GetName(), "index", i)
 				continue
 			}
 			v := Vulnerability{

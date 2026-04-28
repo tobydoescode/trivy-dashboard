@@ -23,9 +23,10 @@ runs:
         go tool cover -html=coverage.out -o coverage.html
         go tool cover -html=coverage-internal.out -o coverage-internal.html
 
-    - name: Run go vet
-      shell: bash
-      run: go vet ./...
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@v8
+      with:
+        version: v2.1.6
 
     - name: Run JS smoke tests
       shell: bash

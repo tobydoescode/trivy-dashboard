@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -41,18 +42,20 @@ func NewHandler(store *kube.Store, templates *template.Template, broker *Broker,
 	}
 }
 
+func (h *Handler) renderTemplate(w http.ResponseWriter, name string, data any) {
+	var buf bytes.Buffer
+	if err := h.templates.ExecuteTemplate(&buf, name, data); err != nil {
+		slog.Error("failed to render template", "template", name, "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	buf.WriteTo(w) //nolint:errcheck // best-effort response write
+}
+
 // Index renders the static HTML shell (no data, unauthenticated).
 func (h *Handler) Index(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	data := struct {
-		AuthRequired bool
-	}{
-		AuthRequired: h.authRequired,
-	}
-	if err := h.templates.ExecuteTemplate(w, "index.html", data); err != nil {
-		slog.Error("failed to render template", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-	}
+	h.renderTemplate(w, "index.html", struct{ AuthRequired bool }{h.authRequired})
 }
 
 // Session sets a browser session cookie after bearer authentication succeeds.
@@ -82,12 +85,7 @@ func (h *Handler) SessionNoop(w http.ResponseWriter, _ *http.Request) {
 
 // DashboardContent renders the dashboard data partial (authenticated).
 func (h *Handler) DashboardContent(w http.ResponseWriter, _ *http.Request) {
-	dash := BuildDashboard(h.store.All())
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := h.templates.ExecuteTemplate(w, "dashboard.html", dash); err != nil {
-		slog.Error("failed to render dashboard content", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-	}
+	h.renderTemplate(w, "dashboard.html", BuildDashboard(h.store.All()))
 }
 
 // WorkloadDetail renders the detail page for a single workload.
@@ -110,11 +108,7 @@ func (h *Handler) WorkloadDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := h.templates.ExecuteTemplate(w, "workload-detail.html", workload); err != nil {
-		slog.Error("failed to render workload detail", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-	}
+	h.renderTemplate(w, "workload-detail.html", workload)
 }
 
 // SSE streams server-sent events to the client. A "refresh" event is
@@ -133,7 +127,7 @@ func (h *Handler) SSE(w http.ResponseWriter, r *http.Request) {
 	ch := h.broker.Subscribe()
 	defer h.broker.Unsubscribe(ch)
 
-	fmt.Fprintf(w, ": connected\n\n")
+	fmt.Fprintf(w, ": connected\n\n") //nolint:errcheck // best-effort SSE write
 	flusher.Flush()
 
 	for {
@@ -144,7 +138,7 @@ func (h *Handler) SSE(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			fmt.Fprintf(w, "event: refresh\ndata: reload\n\n")
+			fmt.Fprintf(w, "event: refresh\ndata: reload\n\n") //nolint:errcheck // best-effort SSE write
 			flusher.Flush()
 		}
 	}

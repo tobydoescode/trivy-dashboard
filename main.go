@@ -21,6 +21,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/tobydoescode/trivy-dashboard/internal/api"
@@ -41,7 +42,7 @@ func main() {
 	slog.SetDefault(logger)
 
 	reg := prometheus.NewRegistry()
-	reg.MustRegister(prometheus.NewGoCollector(), prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
+	reg.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	m := metrics.New(reg)
 
 	addr := os.Getenv("TRIVY_DASHBOARD_ADDR")
@@ -80,7 +81,7 @@ func main() {
 	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(dynClient, 30*time.Minute, "", nil)
 	informer := factory.ForResource(vulnReportGVR).Informer()
 
-	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{ //nolint:errcheck // registration never fails for shared informers
 		AddFunc: func(obj interface{}) {
 			handleEvent(store, obj)
 			m.SetStoreSize(store.Len())
