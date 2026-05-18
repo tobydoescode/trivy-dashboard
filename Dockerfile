@@ -13,7 +13,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags="-s -w" -o /out/trivy-dashboard ./
 
-FROM gcr.io/distroless/static-debian13:nonroot@sha256:e3f945647ffb95b5839c07038d64f9811adf17308b9121d8a2b87b6a22a80a39
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:963fa6c544fe5ce420f1f54fb88b6fb01479f054c8056d0f74cc2c6000df5240
 LABEL org.opencontainers.image.source="https://github.com/tobydoescode/trivy-dashboard" \
       org.opencontainers.image.description="Trivy Operator vulnerability dashboard" \
       org.opencontainers.image.licenses="MIT"
