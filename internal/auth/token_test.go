@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func okHandler() http.Handler {
@@ -13,7 +14,7 @@ func okHandler() http.Handler {
 }
 
 func TestBearer_RejectsMissingHeader(t *testing.T) {
-	h := Bearer("secret")(okHandler())
+	h := Bearer("secret", nil)(okHandler())
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/", nil)
 	h.ServeHTTP(rec, req)
@@ -26,7 +27,7 @@ func TestBearer_RejectsMissingHeader(t *testing.T) {
 }
 
 func TestBearer_RejectsWrongToken(t *testing.T) {
-	h := Bearer("secret")(okHandler())
+	h := Bearer("secret", nil)(okHandler())
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("Authorization", "Bearer nope")
@@ -37,7 +38,7 @@ func TestBearer_RejectsWrongToken(t *testing.T) {
 }
 
 func TestBearer_AcceptsCorrectToken(t *testing.T) {
-	h := Bearer("secret")(okHandler())
+	h := Bearer("secret", nil)(okHandler())
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("Authorization", "Bearer secret")
@@ -48,7 +49,7 @@ func TestBearer_AcceptsCorrectToken(t *testing.T) {
 }
 
 func TestBearer_RejectsBasicScheme(t *testing.T) {
-	h := Bearer("secret")(okHandler())
+	h := Bearer("secret", nil)(okHandler())
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("Authorization", "Basic secret")
@@ -59,18 +60,21 @@ func TestBearer_RejectsBasicScheme(t *testing.T) {
 }
 
 func TestBearer_AllowsSessionCookie(t *testing.T) {
-	h := Bearer("secret")(okHandler())
+	sessions := NewSessionStore(time.Hour)
+	id := sessions.Create()
+	h := Bearer("secret", sessions)(okHandler())
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/", nil)
-	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "secret"})
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: id})
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", rec.Code)
 	}
 }
 
-func TestBearer_RejectsWrongSessionCookie(t *testing.T) {
-	h := Bearer("secret")(okHandler())
+func TestBearer_RejectsUnknownSessionCookie(t *testing.T) {
+	sessions := NewSessionStore(time.Hour)
+	h := Bearer("secret", sessions)(okHandler())
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "wrong"})
@@ -80,8 +84,31 @@ func TestBearer_RejectsWrongSessionCookie(t *testing.T) {
 	}
 }
 
+func TestBearer_RejectsTokenValueAsSessionCookie(t *testing.T) {
+	sessions := NewSessionStore(time.Hour)
+	h := Bearer("secret", sessions)(okHandler())
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "secret"})
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401 — raw token must not work as a session ID", rec.Code)
+	}
+}
+
+func TestBearer_NilSessionStoreIgnoresCookies(t *testing.T) {
+	h := Bearer("secret", nil)(okHandler())
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "secret"})
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
 func TestBearer_RejectsQueryToken(t *testing.T) {
-	h := Bearer("secret")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := Bearer("secret", nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called")
 	}))
 	rec := httptest.NewRecorder()
@@ -98,5 +125,5 @@ func TestBearer_EmptyTokenPanics(t *testing.T) {
 			t.Errorf("expected panic on empty token")
 		}
 	}()
-	Bearer("")
+	Bearer("", nil)
 }

@@ -78,6 +78,77 @@ func TestParseVulnerabilityReport(t *testing.T) {
 	}
 }
 
+func TestParseVulnerabilityReport_Float64Counts(t *testing.T) {
+	obj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"name":      "r",
+				"namespace": "default",
+			},
+			"report": map[string]interface{}{
+				"summary": map[string]interface{}{
+					"criticalCount": float64(3),
+					"unknownCount":  float64(1),
+				},
+			},
+		},
+	}
+
+	report, err := ParseVulnerabilityReport(obj)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if report.Report.Summary.Critical != 3 {
+		t.Errorf("critical = %d, want 3", report.Report.Summary.Critical)
+	}
+	if report.Report.Summary.Unknown != 1 {
+		t.Errorf("unknown = %d, want 1", report.Report.Summary.Unknown)
+	}
+}
+
+func TestParseVulnerabilityReport_SkipsMalformedVulnEntry(t *testing.T) {
+	obj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"name":      "r",
+				"namespace": "default",
+			},
+			"report": map[string]interface{}{
+				"vulnerabilities": []interface{}{
+					"not-a-map",
+					map[string]interface{}{"vulnerabilityID": "CVE-1", "severity": "LOW"},
+				},
+			},
+		},
+	}
+
+	report, err := ParseVulnerabilityReport(obj)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(report.Report.Vulns) != 1 {
+		t.Fatalf("vulns = %d, want 1 (malformed entry skipped)", len(report.Report.Vulns))
+	}
+	if report.Report.Vulns[0].ID != "CVE-1" {
+		t.Errorf("vuln ID = %q, want CVE-1", report.Report.Vulns[0].ID)
+	}
+}
+
+func TestParseVulnerabilityReport_MissingReportField(t *testing.T) {
+	obj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"name":      "r",
+				"namespace": "default",
+			},
+		},
+	}
+
+	if _, err := ParseVulnerabilityReport(obj); err == nil {
+		t.Fatal("expected error for missing report field")
+	}
+}
+
 func TestStore(t *testing.T) {
 	s := NewStore()
 	if s.IsSynced() {
@@ -87,6 +158,16 @@ func TestStore(t *testing.T) {
 	s.Set(r)
 	if got := s.Len(); got != 1 {
 		t.Fatalf("Len() = %d, want 1", got)
+	}
+	got, ok := s.Get("default", "test-report")
+	if !ok {
+		t.Fatal("Get should find the stored report")
+	}
+	if got.Name != "test-report" {
+		t.Errorf("Get name = %q, want test-report", got.Name)
+	}
+	if _, ok := s.Get("default", "missing"); ok {
+		t.Error("Get should miss for unknown name")
 	}
 	all := s.All() // all is now []VulnerabilityReport, not []*VulnerabilityReport
 	if len(all) != 1 {
@@ -131,5 +212,27 @@ func TestStoreAllReturnsDeepCopies(t *testing.T) {
 	}
 	if second[0].Report.Vulns[0].ID != "CVE-1" {
 		t.Fatalf("vulnerability was mutated through snapshot")
+	}
+}
+
+func TestStoreGetReturnsDeepCopy(t *testing.T) {
+	s := NewStore()
+	s.Set(&VulnerabilityReport{
+		Name:      "report",
+		Namespace: "default",
+		Report: Report{
+			Vulns: []Vulnerability{{ID: "CVE-1", Severity: "HIGH"}},
+		},
+	})
+
+	first, ok := s.Get("default", "report")
+	if !ok {
+		t.Fatal("Get should find the stored report")
+	}
+	first.Report.Vulns[0].ID = "mutated"
+
+	second, _ := s.Get("default", "report")
+	if second.Report.Vulns[0].ID != "CVE-1" {
+		t.Fatal("vulnerability was mutated through Get copy")
 	}
 }

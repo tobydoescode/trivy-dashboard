@@ -35,7 +35,7 @@ func TestBuildDashboard(t *testing.T) {
 			},
 			Report: kube.Report{
 				Artifact: kube.Artifact{Repository: "myorg/api", Tag: "v2"},
-				Summary:  kube.Summary{Critical: 0, High: 0, Medium: 1, Low: 0},
+				Summary:  kube.Summary{Critical: 0, High: 0, Medium: 1, Low: 0, Unknown: 2},
 				Vulns: []kube.Vulnerability{
 					{ID: "CVE-2024-0005", Severity: "MEDIUM", Score: 5.0, Resource: "glibc", InstalledVersion: "2.35", FixedVersion: "2.36", PrimaryLink: "https://avd.aquasec.com/nvd/cve-2024-0005"},
 				},
@@ -53,6 +53,9 @@ func TestBuildDashboard(t *testing.T) {
 	}
 	if dash.Summary.Medium != 1 {
 		t.Errorf("summary medium = %d, want 1", dash.Summary.Medium)
+	}
+	if dash.Summary.Unknown != 2 {
+		t.Errorf("summary unknown = %d, want 2", dash.Summary.Unknown)
 	}
 	if dash.Summary.RAG != RAGRed {
 		t.Errorf("summary RAG = %q, want %q", dash.Summary.RAG, RAGRed)
@@ -143,6 +146,7 @@ func TestRAGStatus(t *testing.T) {
 		{kube.Summary{Critical: 1}, RAGRed},
 		{kube.Summary{High: 1}, RAGRed},
 		{kube.Summary{Medium: 1}, RAGAmber},
+		{kube.Summary{Unknown: 1}, RAGAmber},
 		{kube.Summary{Low: 1}, RAGGreen},
 		{kube.Summary{}, RAGGreen},
 	}

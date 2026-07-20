@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"html/template"
 	"net/http"
 	"net/http/httptest"
@@ -92,11 +93,11 @@ func TestIndex_AuthRequired(t *testing.T) {
 	}
 }
 
-func TestSession_SetsHttpOnlyCookie(t *testing.T) {
-	h := testHandler(t)
+func TestSession_SetsRandomSessionIDCookie(t *testing.T) {
+	sessions := auth.NewSessionStore(time.Hour)
+	h := testHandlerWithOptions(t, HandlerOptions{AuthRequired: true, Sessions: sessions})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("POST", "/api/session", nil)
-	req.Header.Set("Authorization", "Bearer secret")
 
 	h.Session(rec, req)
 
@@ -111,11 +112,14 @@ func TestSession_SetsHttpOnlyCookie(t *testing.T) {
 	if got.Name != auth.SessionCookieName {
 		t.Fatalf("cookie name = %q, want %q", got.Name, auth.SessionCookieName)
 	}
-	if got.Value != "secret" {
-		t.Fatalf("cookie value = %q, want secret", got.Value)
+	if !sessions.Valid(got.Value) {
+		t.Fatal("cookie value should be a live session ID")
 	}
 	if got.Path != "/" {
 		t.Fatalf("cookie path = %q, want /", got.Path)
+	}
+	if got.MaxAge != int(time.Hour.Seconds()) {
+		t.Fatalf("cookie MaxAge = %d, want %d", got.MaxAge, int(time.Hour.Seconds()))
 	}
 	if !got.HttpOnly {
 		t.Fatal("cookie should be HttpOnly")
@@ -126,10 +130,10 @@ func TestSession_SetsHttpOnlyCookie(t *testing.T) {
 }
 
 func TestSession_CanForceSecureCookieBehindProxy(t *testing.T) {
-	h := testHandlerWithOptions(t, HandlerOptions{AuthRequired: true, SecureCookies: true})
+	sessions := auth.NewSessionStore(time.Hour)
+	h := testHandlerWithOptions(t, HandlerOptions{AuthRequired: true, SecureCookies: true, Sessions: sessions})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("POST", "/api/session", nil)
-	req.Header.Set("Authorization", "Bearer secret")
 
 	h.Session(rec, req)
 
@@ -145,15 +149,104 @@ func TestSession_CanForceSecureCookieBehindProxy(t *testing.T) {
 	}
 }
 
-func TestSession_RejectsMissingBearerToken(t *testing.T) {
+func TestSession_MarksCookieSecureOverTLS(t *testing.T) {
+	sessions := auth.NewSessionStore(time.Hour)
+	h := testHandlerWithOptions(t, HandlerOptions{AuthRequired: true, Sessions: sessions})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/session", nil)
+	req.TLS = &tls.ConnectionState{}
+
+	h.Session(rec, req)
+
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("cookies = %d, want 1", len(cookies))
+	}
+	if !cookies[0].Secure {
+		t.Fatal("cookie should be Secure on a TLS request")
+	}
+}
+
+func TestSession_NilSessionStoreSetsNoCookie(t *testing.T) {
 	h := testHandler(t)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("POST", "/api/session", nil)
 
 	h.Session(rec, req)
 
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if len(rec.Result().Cookies()) != 0 {
+		t.Fatal("no cookie should be set without a session store")
+	}
+}
+
+func TestSessionNoop(t *testing.T) {
+	h := testHandler(t)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/session", nil)
+
+	h.SessionNoop(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if len(rec.Result().Cookies()) != 0 {
+		t.Fatal("noop should not set cookies")
+	}
+}
+
+func TestSession_MiddlewareRejectsMissingBearerToken(t *testing.T) {
+	sessions := auth.NewSessionStore(time.Hour)
+	h := testHandlerWithOptions(t, HandlerOptions{AuthRequired: true, Sessions: sessions})
+	protected := auth.Bearer("secret", sessions)(http.HandlerFunc(h.Session))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/session", nil)
+
+	protected.ServeHTTP(rec, req)
+
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+	if len(rec.Result().Cookies()) != 0 {
+		t.Fatal("no cookie should be set without authentication")
+	}
+}
+
+func TestSignOut_RevokesSessionAndExpiresCookie(t *testing.T) {
+	sessions := auth.NewSessionStore(time.Hour)
+	id := sessions.Create()
+	h := testHandlerWithOptions(t, HandlerOptions{AuthRequired: true, Sessions: sessions})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("DELETE", "/api/session", nil)
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: id})
+
+	h.SignOut(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if sessions.Valid(id) {
+		t.Fatal("session should be revoked after sign-out")
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("cookies = %d, want 1", len(cookies))
+	}
+	if cookies[0].MaxAge >= 0 {
+		t.Fatalf("cookie MaxAge = %d, want negative (expired)", cookies[0].MaxAge)
+	}
+}
+
+func TestRenderTemplate_UnknownTemplateReturns500(t *testing.T) {
+	h := testHandler(t)
+	rec := httptest.NewRecorder()
+
+	h.renderTemplate(rec, "does-not-exist.html", nil)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
 }
 
@@ -275,12 +368,14 @@ func TestWorkloadDetail_NotFound(t *testing.T) {
 
 func TestSSE_ConnectsWithSessionCookie(t *testing.T) {
 	h := testHandler(t)
-	protected := auth.Bearer("secret")(http.HandlerFunc(h.SSE))
+	sessions := auth.NewSessionStore(time.Hour)
+	id := sessions.Create()
+	protected := auth.Bearer("secret", sessions)(http.HandlerFunc(h.SSE))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/events", nil)
-	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: "secret"})
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: id})
 	rec := newFlushRecorder()
 
 	done := make(chan struct{})
@@ -314,9 +409,100 @@ func TestSSE_ConnectsWithSessionCookie(t *testing.T) {
 	}
 }
 
+type noFlushWriter struct {
+	header http.Header
+	code   int
+}
+
+func (w *noFlushWriter) Header() http.Header {
+	if w.header == nil {
+		w.header = make(http.Header)
+	}
+	return w.header
+}
+
+func (w *noFlushWriter) Write(p []byte) (int, error) { return len(p), nil }
+
+func (w *noFlushWriter) WriteHeader(code int) { w.code = code }
+
+func TestSSE_RequiresFlusher(t *testing.T) {
+	h := testHandler(t)
+	rec := &noFlushWriter{}
+	req := httptest.NewRequest(http.MethodGet, "/api/events", nil)
+
+	h.SSE(rec, req)
+
+	if rec.code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.code, http.StatusInternalServerError)
+	}
+}
+
+func TestSSE_ExitsWhenBrokerShutsDown(t *testing.T) {
+	h := testHandler(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/events", nil)
+	rec := newFlushRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.SSE(rec, req)
+	}()
+
+	select {
+	case <-rec.wrote:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for SSE greeting")
+	}
+
+	h.broker.Shutdown()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("SSE handler did not exit after broker shutdown")
+	}
+}
+
+func TestSSE_SendsHeartbeat(t *testing.T) {
+	orig := sseHeartbeatInterval
+	sseHeartbeatInterval = 10 * time.Millisecond
+	defer func() { sseHeartbeatInterval = orig }()
+
+	h := testHandler(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/events", nil)
+	rec := newFlushRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.SSE(rec, req)
+	}()
+
+	deadline := time.After(500 * time.Millisecond)
+	for {
+		rec.mu.Lock()
+		got := strings.Contains(rec.body.String(), ": ping\n\n")
+		rec.mu.Unlock()
+		if got {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for heartbeat ping")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	cancel()
+	<-done
+}
+
 func TestAuthenticatedSSE_RejectsQueryToken(t *testing.T) {
 	h := testHandler(t)
-	protected := auth.Bearer("secret")(http.HandlerFunc(h.SSE))
+	protected := auth.Bearer("secret", nil)(http.HandlerFunc(h.SSE))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/events?token=secret", nil)
 	rec := httptest.NewRecorder()
@@ -329,6 +515,7 @@ func TestAuthenticatedSSE_RejectsQueryToken(t *testing.T) {
 }
 
 type flushRecorder struct {
+	mu     sync.Mutex
 	header http.Header
 	body   bytes.Buffer
 	code   int
@@ -349,7 +536,9 @@ func (r *flushRecorder) Header() http.Header {
 }
 
 func (r *flushRecorder) Write(p []byte) (int, error) {
+	r.mu.Lock()
 	n, err := r.body.Write(p)
+	r.mu.Unlock()
 	r.once.Do(func() {
 		close(r.wrote)
 	})

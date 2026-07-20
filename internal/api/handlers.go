@@ -6,17 +6,20 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
-	"strings"
+	"time"
 
 	"github.com/tobydoescode/trivy-dashboard/internal/auth"
 	"github.com/tobydoescode/trivy-dashboard/internal/kube"
 )
+
+var sseHeartbeatInterval = 30 * time.Second
 
 // Handler serves the dashboard HTML pages and SSE stream.
 type Handler struct {
 	store         *kube.Store
 	templates     *template.Template
 	broker        *Broker
+	sessions      *auth.SessionStore
 	authRequired  bool
 	secureCookies bool
 }
@@ -25,20 +28,18 @@ type Handler struct {
 type HandlerOptions struct {
 	AuthRequired  bool
 	SecureCookies bool
+	Sessions      *auth.SessionStore
 }
 
 // NewHandler creates a Handler with the given store, templates, and SSE broker.
-func NewHandler(store *kube.Store, templates *template.Template, broker *Broker, opts ...HandlerOptions) *Handler {
-	var opt HandlerOptions
-	if len(opts) > 0 {
-		opt = opts[0]
-	}
+func NewHandler(store *kube.Store, templates *template.Template, broker *Broker, opts HandlerOptions) *Handler {
 	return &Handler{
 		store:         store,
 		templates:     templates,
 		broker:        broker,
-		authRequired:  opt.AuthRequired,
-		secureCookies: opt.SecureCookies,
+		sessions:      opts.Sessions,
+		authRequired:  opts.AuthRequired,
+		secureCookies: opts.SecureCookies,
 	}
 }
 
@@ -58,19 +59,19 @@ func (h *Handler) Index(w http.ResponseWriter, _ *http.Request) {
 	h.renderTemplate(w, "index.html", struct{ AuthRequired bool }{h.authRequired})
 }
 
-// Session sets a browser session cookie after bearer authentication succeeds.
+// Session mints a random server-side session ID and sets it as an HTTP-only
+// cookie. Bearer authentication happens in middleware before this runs, so
+// the token itself never has to be stored client-side.
 func (h *Handler) Session(w http.ResponseWriter, r *http.Request) {
-	const prefix = "Bearer "
-	hdr := r.Header.Get("Authorization")
-	if !strings.HasPrefix(hdr, prefix) {
-		http.Error(w, "missing bearer token", http.StatusUnauthorized)
+	if h.sessions == nil {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-
 	http.SetCookie(w, &http.Cookie{
 		Name:     auth.SessionCookieName,
-		Value:    strings.TrimPrefix(hdr, prefix),
+		Value:    h.sessions.Create(),
 		Path:     "/",
+		MaxAge:   int(h.sessions.TTL().Seconds()),
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 		Secure:   h.secureCookies || r.TLS != nil,
@@ -83,6 +84,25 @@ func (h *Handler) SessionNoop(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// SignOut revokes the caller's session and expires the cookie.
+func (h *Handler) SignOut(w http.ResponseWriter, r *http.Request) {
+	if h.sessions != nil {
+		if cookie, err := r.Cookie(auth.SessionCookieName); err == nil {
+			h.sessions.Delete(cookie.Value)
+		}
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     auth.SessionCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   h.secureCookies || r.TLS != nil,
+	})
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // DashboardContent renders the dashboard data partial (authenticated).
 func (h *Handler) DashboardContent(w http.ResponseWriter, _ *http.Request) {
 	h.renderTemplate(w, "dashboard.html", BuildDashboard(h.store.All()))
@@ -90,35 +110,29 @@ func (h *Handler) DashboardContent(w http.ResponseWriter, _ *http.Request) {
 
 // WorkloadDetail renders the detail page for a single workload.
 func (h *Handler) WorkloadDetail(w http.ResponseWriter, r *http.Request) {
-	namespace := r.PathValue("namespace")
-	reportName := r.PathValue("report")
-
-	dash := BuildDashboard(h.store.All())
-
-	var workload *WorkloadSummary
-	for i := range dash.Workloads {
-		if dash.Workloads[i].Namespace == namespace && dash.Workloads[i].ReportName == reportName {
-			workload = &dash.Workloads[i]
-			break
-		}
-	}
-
-	if workload == nil {
+	report, ok := h.store.Get(r.PathValue("namespace"), r.PathValue("report"))
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-
-	h.renderTemplate(w, "workload-detail.html", workload)
+	ws := buildWorkloadSummary(report)
+	h.renderTemplate(w, "workload-detail.html", &ws)
 }
 
 // SSE streams server-sent events to the client. A "refresh" event is
-// sent whenever the vulnerability store changes.
+// sent whenever the vulnerability store changes; comment pings keep the
+// connection alive through proxies.
 func (h *Handler) SSE(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming not supported", http.StatusInternalServerError)
 		return
 	}
+
+	// The server-wide WriteTimeout would sever the stream; SSE responses
+	// never complete, so clear the deadline for this response only.
+	rc := http.NewResponseController(w)
+	rc.SetWriteDeadline(time.Time{}) //nolint:errcheck // test recorders lack deadline support
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -130,10 +144,16 @@ func (h *Handler) SSE(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, ": connected\n\n") //nolint:errcheck // best-effort SSE write
 	flusher.Flush()
 
+	heartbeat := time.NewTicker(sseHeartbeatInterval)
+	defer heartbeat.Stop()
+
 	for {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-heartbeat.C:
+			fmt.Fprintf(w, ": ping\n\n") //nolint:errcheck // best-effort SSE write
+			flusher.Flush()
 		case _, ok := <-ch:
 			if !ok {
 				return

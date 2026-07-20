@@ -17,7 +17,7 @@ RAG rules per workload:
 | Bucket | Condition |
 | ------ | --------- |
 | Red    | any `CRITICAL` or `HIGH` vuln |
-| Amber  | any `MEDIUM` vuln (no higher) |
+| Amber  | any `MEDIUM` or `UNKNOWN` vuln (no higher) |
 | Green  | only `LOW` or clean |
 
 The aggregate dashboard tile is Red if any workload is Red, Amber if any is
@@ -29,6 +29,7 @@ Amber, Green otherwise.
 | ------ | ---- | ---- | ----------- |
 | GET | `/` | — | Dashboard shell (no data; UI fetches `/api/dashboard`) |
 | POST | `/api/session` | bearer (if `TRIVY_DASHBOARD_TOKEN` set) | Browser session cookie setup |
+| DELETE | `/api/session` | — | Revoke own session and expire the cookie |
 | GET | `/api/dashboard` | bearer/session (if `TRIVY_DASHBOARD_TOKEN` set) | Summary HTML partial |
 | GET | `/workload/{namespace}/{report}` | bearer/session (if token set) | Detail page for one VulnerabilityReport |
 | GET | `/static/*` | — | Embedded CSS/JS |
@@ -44,9 +45,12 @@ Amber, Green otherwise.
 | `TRIVY_DASHBOARD_SECURE_COOKIES` | `false` | If `true`, always mark browser session cookies as `Secure`. Useful when the app runs behind TLS-terminating ingress. |
 | `KUBECONFIG` | `~/.kube/config` | Only used outside the cluster when in-cluster config isn't available |
 
-When `TRIVY_DASHBOARD_TOKEN` is set, browser requests first exchange the bearer
-token for an HTTP-only same-site session cookie at `POST /api/session`. The SSE
-stream uses that cookie so credentials are not placed in query strings.
+When `TRIVY_DASHBOARD_TOKEN` is set, the browser exchanges the bearer token at
+`POST /api/session` for a random server-minted session ID stored in an
+HTTP-only same-site cookie (24h TTL, in-memory — a pod restart signs everyone
+out). The token itself is used for that one request and never stored
+client-side. The SSE stream authenticates with the cookie so credentials are
+not placed in query strings.
 
 In production `TRIVY_DASHBOARD_TOKEN` comes from the `trivy-dashboard-auth`
 Secret, populated by ExternalSecrets.

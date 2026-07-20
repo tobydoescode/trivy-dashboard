@@ -9,12 +9,14 @@ import (
 
 // SessionCookieName is the browser session cookie used by routes that cannot
 // set Authorization headers, such as native EventSource.
-const SessionCookieName = "trivy_dashboard_token"
+const SessionCookieName = "trivy_dashboard_session"
 
-// Bearer returns middleware that requires Authorization: Bearer <expected>.
-// Comparison is constant-time. An empty expected token panics at construction
-// time — a missing token is a startup error, not a runtime 401.
-func Bearer(expected string) func(http.Handler) http.Handler {
+// Bearer returns middleware that requires Authorization: Bearer <expected>,
+// or a valid session cookie minted by sessions (which may be nil to disable
+// cookie auth). Token comparison is constant-time. An empty expected token
+// panics at construction time — a missing token is a startup error, not a
+// runtime 401.
+func Bearer(expected string, sessions *SessionStore) func(http.Handler) http.Handler {
 	if expected == "" {
 		panic("auth.Bearer: empty token")
 	}
@@ -33,8 +35,8 @@ func Bearer(expected string) func(http.Handler) http.Handler {
 				return
 			}
 
-			if cookie, err := r.Cookie(SessionCookieName); err == nil {
-				if subtle.ConstantTimeCompare([]byte(cookie.Value), expectedBytes) == 1 {
+			if sessions != nil {
+				if cookie, err := r.Cookie(SessionCookieName); err == nil && sessions.Valid(cookie.Value) {
 					next.ServeHTTP(w, r)
 					return
 				}

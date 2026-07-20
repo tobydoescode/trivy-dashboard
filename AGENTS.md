@@ -55,14 +55,15 @@ scripts/                    Shell helpers (docker-build-needed.sh)
 | `GET /healthz` | no | Liveness probe |
 | `GET /readyz` | no | 503 until informer synced |
 | `GET /metrics` | no | Prometheus |
-| `POST /api/session` | bearer | Exchange token for HTTP-only session cookie |
+| `POST /api/session` | bearer | Exchange token for random session-ID cookie (24h TTL) |
+| `DELETE /api/session` | no | Revoke own session, expire cookie |
 | `GET /api/dashboard` | bearer/session | Aggregated summary HTML partial |
 | `GET /workload/{ns}/{name}` | bearer/session | Detail table for one report |
 | `GET /api/events` | session | SSE stream ("refresh" on store changes) |
 
 Auth only active when `TRIVY_DASHBOARD_TOKEN` env var is set.
 
-**RAG logic**: Red = any CRITICAL/HIGH. Amber = any MEDIUM (no higher). Green = LOW only or clean.
+**RAG logic**: Red = any CRITICAL/HIGH. Amber = any MEDIUM or UNKNOWN (no higher). Green = LOW only or clean.
 
 ### Environment Variables
 
