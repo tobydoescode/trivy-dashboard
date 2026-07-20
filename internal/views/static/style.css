@@ -52,6 +52,7 @@ header h1 {
 .count.high     { color: #ff7043; }
 .count.medium   { color: #ffa726; }
 .count.low      { color: #66bb6a; }
+.count.unknown  { color: #9ea7b3; }
 
 .workloads {
     width: 100%;
@@ -108,5 +109,33 @@ header h1 {
 .severity-HIGH td:first-child     { border-left: 3px solid #ff7043; }
 .severity-MEDIUM td:first-child   { border-left: 3px solid #ffa726; }
 .severity-LOW td:first-child      { border-left: 3px solid #66bb6a; }
+.severity-UNKNOWN td:first-child  { border-left: 3px solid #6e7681; }
 
 .no-fix { color: #6e7681; font-style: italic; }
+
+#filter {
+    padding: 0.3rem 0.8rem;
+    background: #0f1117;
+    color: #e1e4e8;
+    border: 1px solid #363b42;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+#login form {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+#token-input {
+    padding: 0.3rem 0.8rem;
+    background: #0f1117;
+    color: #e1e4e8;
+    border: 1px solid #363b42;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    width: 20rem;
+}
+
+.error { color: #ef5350; }

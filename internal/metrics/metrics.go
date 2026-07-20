@@ -12,6 +12,8 @@ type Metrics struct {
 	requestDuration *prometheus.HistogramVec
 	storeReports    prometheus.Gauge
 	storeSynced     prometheus.Gauge
+	watchHealthy    prometheus.Gauge
+	watchErrors     prometheus.Counter
 }
 
 // New creates and registers all metrics with the given registry.
@@ -30,8 +32,16 @@ func New(reg prometheus.Registerer) *Metrics {
 			Name: "trivy_dashboard_store_synced",
 			Help: "Whether the informer cache is synced (1=yes, 0=no).",
 		}),
+		watchHealthy: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "trivy_dashboard_watch_healthy",
+			Help: "Whether the report watch is healthy (1=yes, 0=last attempt errored).",
+		}),
+		watchErrors: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "trivy_dashboard_watch_errors_total",
+			Help: "Total watch/list errors from the informer.",
+		}),
 	}
-	reg.MustRegister(m.requestDuration, m.storeReports, m.storeSynced)
+	reg.MustRegister(m.requestDuration, m.storeReports, m.storeSynced, m.watchHealthy, m.watchErrors)
 	return m
 }
 
@@ -52,4 +62,18 @@ func (m *Metrics) SetSynced(synced bool) {
 	} else {
 		m.storeSynced.Set(0)
 	}
+}
+
+// SetWatchHealthy sets the watch health gauge (1 or 0).
+func (m *Metrics) SetWatchHealthy(healthy bool) {
+	if healthy {
+		m.watchHealthy.Set(1)
+	} else {
+		m.watchHealthy.Set(0)
+	}
+}
+
+// IncWatchErrors increments the watch error counter.
+func (m *Metrics) IncWatchErrors() {
+	m.watchErrors.Inc()
 }

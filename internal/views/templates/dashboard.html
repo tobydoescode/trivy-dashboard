@@ -3,6 +3,7 @@
     <span class="count high">{{.Summary.High}} High</span>
     <span class="count medium">{{.Summary.Medium}} Medium</span>
     <span class="count low">{{.Summary.Low}} Low</span>
+    <span class="count unknown">{{.Summary.Unknown}} Unknown</span>
 </div>
 
 <table class="workloads">
@@ -14,6 +15,7 @@
             <th>High</th>
             <th>Medium</th>
             <th>Low</th>
+            <th>Unknown</th>
             <th>Status</th>
         </tr>
     </thead>
@@ -26,9 +28,10 @@
             <td class="count">{{.High}}</td>
             <td class="count">{{.Medium}}</td>
             <td class="count">{{.Low}}</td>
+            <td class="count">{{.Unknown}}</td>
             <td><span class="rag-badge rag-{{.RAG}}">{{.RAG}}</span></td>
         </tr>
-        <tr class="workload-detail"><td colspan="7"></td></tr>
+        <tr class="workload-detail"><td colspan="8"></td></tr>
         {{end}}
     </tbody>
 </table>

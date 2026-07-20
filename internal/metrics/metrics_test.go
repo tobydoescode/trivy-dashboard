@@ -56,3 +56,41 @@ func TestStoreMetrics(t *testing.T) {
 		t.Errorf("expected store_synced 1, got:\n%s", body)
 	}
 }
+
+func TestSetSyncedFalse(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := New(reg)
+
+	m.SetSynced(true)
+	m.SetSynced(false)
+
+	metricsRec := httptest.NewRecorder()
+	metricsReq := httptest.NewRequest("GET", "/metrics", nil)
+	promhttp.HandlerFor(reg, promhttp.HandlerOpts{}).ServeHTTP(metricsRec, metricsReq)
+
+	if !strings.Contains(metricsRec.Body.String(), "trivy_dashboard_store_synced 0") {
+		t.Errorf("expected store_synced 0, got:\n%s", metricsRec.Body.String())
+	}
+}
+
+func TestWatchMetrics(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := New(reg)
+
+	m.SetWatchHealthy(true)
+	m.IncWatchErrors()
+	m.IncWatchErrors()
+	m.SetWatchHealthy(false)
+
+	metricsRec := httptest.NewRecorder()
+	metricsReq := httptest.NewRequest("GET", "/metrics", nil)
+	promhttp.HandlerFor(reg, promhttp.HandlerOpts{}).ServeHTTP(metricsRec, metricsReq)
+
+	body := metricsRec.Body.String()
+	if !strings.Contains(body, "trivy_dashboard_watch_healthy 0") {
+		t.Errorf("expected watch_healthy 0, got:\n%s", body)
+	}
+	if !strings.Contains(body, "trivy_dashboard_watch_errors_total 2") {
+		t.Errorf("expected watch_errors_total 2, got:\n%s", body)
+	}
+}

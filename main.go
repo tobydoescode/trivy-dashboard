@@ -85,18 +85,37 @@ func main() {
 
 	store := kube.NewStore()
 	broker := api.NewBroker(500 * time.Millisecond)
-	defer broker.Shutdown()
+	reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "trivy_dashboard_sse_clients",
+		Help: "Number of connected SSE clients.",
+	}, func() float64 { return float64(broker.SubscriberCount()) }))
 
 	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(dynClient, 30*time.Minute, "", nil)
 	informer := factory.ForResource(vulnReportGVR).Informer()
+
+	if err := informer.SetWatchErrorHandler(func(_ *cache.Reflector, err error) {
+		logger.Warn("informer watch error", "err", err)
+		m.SetWatchHealthy(false)
+		m.IncWatchErrors()
+	}); err != nil {
+		logger.Error("failed to set watch error handler", "err", err)
+		os.Exit(1)
+	}
 
 	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{ //nolint:errcheck // registration never fails for shared informers
 		AddFunc: func(obj interface{}) {
 			handleEvent(store, obj)
 			m.SetStoreSize(store.Len())
+			m.SetWatchHealthy(true)
 			broker.Notify()
 		},
-		UpdateFunc: func(_, obj interface{}) {
+		UpdateFunc: func(oldObj, obj interface{}) {
+			m.SetWatchHealthy(true)
+			if oldU, ok := oldObj.(*unstructured.Unstructured); ok {
+				if newU, ok := obj.(*unstructured.Unstructured); ok && oldU.GetResourceVersion() == newU.GetResourceVersion() {
+					return // periodic resync, nothing changed
+				}
+			}
 			handleEvent(store, obj)
 			m.SetStoreSize(store.Len())
 			broker.Notify()
@@ -130,6 +149,7 @@ func main() {
 	}
 	store.MarkSynced()
 	m.SetSynced(true)
+	m.SetWatchHealthy(true)
 	logger.Info("informer cache synced")
 
 	mux := http.NewServeMux()
@@ -151,14 +171,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	var sessions *auth.SessionStore
+	if token != "" {
+		sessions = auth.NewSessionStore(24 * time.Hour)
+	}
+
 	handler := api.NewHandler(store, tmpl, broker, api.HandlerOptions{
 		AuthRequired:  token != "",
 		SecureCookies: secureCookies,
+		Sessions:      sessions,
 	})
 	mux.HandleFunc("GET /", handler.Index)
 	if token != "" {
-		authed := auth.Bearer(token)
+		authed := auth.Bearer(token, sessions)
 		mux.Handle("POST /api/session", authed(http.HandlerFunc(handler.Session)))
+		mux.HandleFunc("DELETE /api/session", handler.SignOut)
 		mux.Handle("GET /api/dashboard", authed(http.HandlerFunc(handler.DashboardContent)))
 		mux.Handle("GET /workload/{namespace}/{report}", authed(http.HandlerFunc(handler.WorkloadDetail)))
 		mux.Handle("GET /api/events", authed(http.HandlerFunc(handler.SSE)))
@@ -201,6 +228,10 @@ func main() {
 		logger.Info("shutting down")
 	}
 
+	// Close SSE subscriber channels first so streaming handlers unwind;
+	// otherwise srv.Shutdown blocks on them until its deadline.
+	broker.Shutdown()
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
@@ -221,5 +252,5 @@ func handleEvent(store *kube.Store, obj interface{}) {
 		return
 	}
 	store.Set(report)
-	slog.Info("synced vulnerability report", "namespace", report.Namespace, "name", report.Name)
+	slog.Debug("synced vulnerability report", "namespace", report.Namespace, "name", report.Name)
 }

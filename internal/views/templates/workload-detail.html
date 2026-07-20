@@ -15,7 +15,7 @@
         <tr class="severity-{{.Severity}}">
             <td><a href="{{safeURL .PrimaryLink}}" target="_blank" rel="noopener">{{.ID}}</a></td>
             <td>{{.Severity}}</td>
-            <td>{{printf "%.1f" .Score}}</td>
+            <td>{{if .Score}}{{printf "%.1f" .Score}}{{else}}<span class="no-fix">—</span>{{end}}</td>
             <td>{{.Resource}}</td>
             <td>{{.InstalledVersion}}</td>
             <td>{{if .FixedVersion}}{{.FixedVersion}}{{else}}<span class="no-fix">no fix</span>{{end}}</td>

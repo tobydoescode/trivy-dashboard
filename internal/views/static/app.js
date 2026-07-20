@@ -1,56 +1,61 @@
 (() => {
-  const TOKEN_KEY = "trivy-dashboard.token";
   const content = document.getElementById("content");
   const refreshTime = document.getElementById("refresh-time");
   const refreshBtn = document.getElementById("refresh");
   const signoutBtn = document.getElementById("signout");
+  const filterInput = document.getElementById("filter");
+  const login = document.getElementById("login");
+  const loginForm = document.getElementById("login-form");
+  const tokenInput = document.getElementById("token-input");
+  const loginError = document.getElementById("login-error");
   const authRequired = document.getElementById("auth-required")?.dataset.required !== "false";
 
   let eventSource = null;
 
-  function getToken() {
-    if (!authRequired) return "";
-    let t = sessionStorage.getItem(TOKEN_KEY);
-    if (!t) {
-      t = window.prompt("Enter trivy-dashboard bearer token:");
-      if (t) sessionStorage.setItem(TOKEN_KEY, t);
+  function closeSSE() {
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
     }
-    return t;
   }
 
-  function clearToken() {
-    sessionStorage.removeItem(TOKEN_KEY);
+  function showLogin(message) {
+    closeSSE();
+    content.innerHTML = "";
+    login.hidden = false;
+    loginError.textContent = message || "";
+    loginError.hidden = !message;
   }
 
-  async function establishSession() {
-    if (!authRequired) return true;
-    const token = getToken();
-    if (!token) return false;
+  function hideLogin() {
+    login.hidden = true;
+    loginError.hidden = true;
+  }
+
+  // Exchanges the token for an HTTP-only session cookie. The token is used
+  // for this one request and never stored client-side.
+  async function submitToken(token) {
     const res = await fetch("/api/session", {
       method: "POST",
       headers: { "Authorization": "Bearer " + token }
     });
     if (res.status === 401) {
-      clearToken();
-      content.innerHTML = '<p class="error">Unauthorized - token cleared. Refresh to re-enter.</p>';
+      showLogin("Invalid token.");
       return false;
     }
     if (!res.ok) {
-      content.innerHTML = '<p class="error">Error: ' + res.status + '</p>';
+      showLogin("Error: " + res.status);
       return false;
     }
+    hideLogin();
+    await start();
     return true;
   }
 
   async function authedFetch(path) {
-    const token = getToken();
-    if (authRequired && !token) return null;
-    const headers = {};
-    if (authRequired) headers.Authorization = "Bearer " + token;
-    const res = await fetch(path, { headers });
+    const res = await fetch(path);
     if (res.status === 401) {
-      clearToken();
-      content.innerHTML = '<p class="error">Unauthorized - token cleared. Refresh to re-enter.</p>';
+      showLogin();
       return null;
     }
     if (!res.ok) {
@@ -60,68 +65,108 @@
     return res.text();
   }
 
-  async function loadDashboard() {
-    const html = await authedFetch("/api/dashboard");
-    if (html === null) return;
-    content.innerHTML = html;
-    refreshTime.textContent = new Date().toLocaleTimeString();
-    attachRowHandlers();
-  }
-
   function buildWorkloadPath(ns, name) {
     return "/workload/" + encodeURIComponent(ns) + "/" + encodeURIComponent(name);
   }
 
+  function rowKey(row) {
+    return row.dataset.ns + "/" + row.dataset.name;
+  }
+
+  async function expandRow(row) {
+    row.classList.add("expanded");
+    const detail = row.nextElementSibling.querySelector("td");
+    const html = await authedFetch(buildWorkloadPath(row.dataset.ns, row.dataset.name));
+    if (html !== null) detail.innerHTML = html;
+  }
+
+  function collapseRow(row) {
+    row.classList.remove("expanded");
+    row.nextElementSibling.querySelector("td").innerHTML = "";
+  }
+
   function attachRowHandlers() {
-    document.querySelectorAll(".workload-row").forEach(function(row) {
-      row.addEventListener("click", async function() {
-        var detail = this.nextElementSibling.querySelector("td");
-        if (this.classList.toggle("expanded")) {
-          var ns = this.dataset.ns;
-          var name = this.dataset.name;
-          var html = await authedFetch(buildWorkloadPath(ns, name));
-          if (html !== null) detail.innerHTML = html;
+    content.querySelectorAll(".workload-row").forEach(function(row) {
+      row.addEventListener("click", function() {
+        if (row.classList.contains("expanded")) {
+          collapseRow(row);
         } else {
-          detail.innerHTML = "";
+          expandRow(row);
         }
       });
     });
   }
 
-  async function connectSSE() {
-    if (eventSource) eventSource.close();
+  function applyFilter() {
+    const query = filterInput.value.trim().toLowerCase();
+    content.querySelectorAll(".workload-row").forEach(function(row) {
+      const match = !query || row.textContent.toLowerCase().includes(query);
+      row.hidden = !match;
+      row.nextElementSibling.hidden = !match;
+    });
+  }
 
-    const ok = await establishSession();
-    if (!ok) return;
+  async function loadDashboard() {
+    const html = await authedFetch("/api/dashboard");
+    if (html === null) return false;
 
+    const expanded = new Set();
+    content.querySelectorAll(".workload-row.expanded").forEach(function(row) {
+      expanded.add(rowKey(row));
+    });
+
+    content.innerHTML = html;
+    refreshTime.textContent = new Date().toLocaleTimeString();
+    attachRowHandlers();
+    content.querySelectorAll(".workload-row").forEach(function(row) {
+      if (expanded.has(rowKey(row))) expandRow(row);
+    });
+    applyFilter();
+    return true;
+  }
+
+  function connectSSE() {
+    closeSSE();
     eventSource = new EventSource("/api/events");
-
     eventSource.addEventListener("refresh", function() {
       loadDashboard();
     });
-
     eventSource.onerror = function() {
       // EventSource auto-reconnects
     };
   }
 
+  async function start() {
+    const ok = await loadDashboard();
+    if (ok) connectSSE();
+  }
+
   if (window.__TRIVY_DASHBOARD_TEST__) {
     window.TrivyDashboardTest = {
+      applyFilter,
       authedFetch,
       buildWorkloadPath,
-      connectSSE,
-      establishSession
+      start,
+      submitToken
     };
   }
 
-  refreshBtn.addEventListener("click", loadDashboard);
-  signoutBtn.addEventListener("click", function() {
-    clearToken();
-    if (eventSource) eventSource.close();
-    content.innerHTML = "";
-    refreshTime.textContent = "—";
+  loginForm.addEventListener("submit", function(e) {
+    e.preventDefault();
+    const token = tokenInput.value.trim();
+    tokenInput.value = "";
+    if (token) submitToken(token);
   });
 
-  loadDashboard();
-  connectSSE();
+  filterInput.addEventListener("input", applyFilter);
+  refreshBtn.addEventListener("click", loadDashboard);
+  signoutBtn.addEventListener("click", async function() {
+    if (authRequired) await fetch("/api/session", { method: "DELETE" });
+    closeSSE();
+    content.innerHTML = "";
+    refreshTime.textContent = "—";
+    if (authRequired) showLogin();
+  });
+
+  start();
 })();

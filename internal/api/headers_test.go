@@ -22,7 +22,8 @@ func TestSecurityHeaders(t *testing.T) {
 	}{
 		{"X-Content-Type-Options", "nosniff"},
 		{"X-Frame-Options", "DENY"},
-		{"Content-Security-Policy", "default-src 'self'"},
+		{"Referrer-Policy", "no-referrer"},
+		{"Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'"},
 	}
 	for _, tt := range tests {
 		got := rec.Header().Get(tt.header)

@@ -28,6 +28,17 @@ func (s *Store) Delete(namespace, name string) {
 	delete(s.reports, namespace+"/"+name)
 }
 
+// Get returns a copy of the report for namespace/name, if present.
+func (s *Store) Get(namespace, name string) (VulnerabilityReport, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	r, ok := s.reports[namespace+"/"+name]
+	if !ok {
+		return VulnerabilityReport{}, false
+	}
+	return cloneReport(r), true
+}
+
 // All returns a snapshot of all reports in the store as value copies.
 func (s *Store) All() []VulnerabilityReport {
 	s.mu.RLock()
