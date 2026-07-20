@@ -21,7 +21,9 @@ func TestSessionStore_CreateAndValid(t *testing.T) {
 
 func TestSessionStore_IDsAreUnique(t *testing.T) {
 	s := NewSessionStore(time.Hour)
-	if s.Create() == s.Create() {
+	first := s.Create()
+	second := s.Create()
+	if first == second {
 		t.Error("two sessions got the same ID")
 	}
 }
